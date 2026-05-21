@@ -127,3 +127,14 @@ class IndicatorBulkRequest(BaseModel):
 class IndicatorBulkResponse(BaseModel):
     saved: int
     skipped: int
+
+
+# Aliases & Wrappers for trend router compatibility
+NewsDetailResponse = NewsItem
+IndicatorLatestResponse = IndicatorLatest
+IndicatorContributionResponse = ContributionResponse
+ReportLatestResponse = ReportResponse
+
+
+class MessageResponse(BaseModel):
+    message: str

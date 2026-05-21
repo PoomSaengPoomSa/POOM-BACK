@@ -32,3 +32,8 @@ class AiTodoConfirmResponse(BaseModel):
 
 class MessageResponse(BaseModel):
     message: str
+
+
+class AiTodoUnconfirmResponse(BaseModel):
+    message: str
+    success: bool = True

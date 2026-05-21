@@ -27,3 +27,8 @@ class SeasonalProductDetail(BaseModel):
     update_date: date
     matched_customer_count: Optional[int] = None
     model_config = ConfigDict(from_attributes=True)
+
+
+SeasonalProductListResponse = SeasonalProductList
+SeasonalProductDetailResponse = SeasonalProductDetail
+

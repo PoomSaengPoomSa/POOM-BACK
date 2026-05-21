@@ -103,3 +103,39 @@ class TransferRequest(BaseModel):
     receiver_u_id: str
     customer_ids: List[int]
     target_branch: int
+
+
+# Aliases & Wrappers for admin router compatibility
+SystemDashboardResponse = DashboardMetrics
+UsageDashboardResponse = UsageResponse
+LogsDashboardResponse = LogListResponse
+EmployeeDashboardResponse = EmployeeDashboard
+PermissionListResponse = EmployeeListResponse
+
+
+class BranchStatsResponse(BaseModel):
+    stats: List[BranchStats]
+    period: Optional[str] = None
+
+
+class WeeklyTrendResponse(BaseModel):
+    trends: List[WeeklyTrend]
+
+
+class EmployeeUsageResponse(BaseModel):
+    usage: List[EmployeeUsage]
+    total: int
+
+
+class AvailableReceiversResponse(BaseModel):
+    receivers: List[AvailableReceiver]
+
+
+class CustomerListResponse(BaseModel):
+    customers: List[CustomerListItem]
+    total: int
+
+
+class TransferResponse(BaseModel):
+    message: str
+    success: bool = True
