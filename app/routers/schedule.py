@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
+from typing import List
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.schemas.schedule import (
@@ -11,6 +12,15 @@ from app.schemas.schedule import (
 from app.services import schedule as schedule_service
 
 router = APIRouter(tags=["schedule"])
+
+
+@router.get("/schedules", response_model=List[ScheduleResponse])
+async def get_schedules(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """일정 전체 목록 조회"""
+    return await schedule_service.get_schedules(current_user, db)
 
 
 @router.post("/schedules", response_model=ScheduleResponse)

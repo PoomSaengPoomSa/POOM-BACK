@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, List
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.schemas.customer import (
@@ -23,14 +23,15 @@ from app.services import customer as customer_service
 router = APIRouter(tags=["customer"])
 
 
-@router.get("/", response_model=CustomerListResponse)
+@router.get("/", response_model=List[CustomerListResponse])
 async def get_customers(
     tab: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
-    size: int = Query(20, ge=1, le=100),
+    size: int = Query(1000, ge=1, le=1000),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+
     """고객 목록 조회"""
     return await customer_service.get_customers(tab, page, size, current_user, db)
 
