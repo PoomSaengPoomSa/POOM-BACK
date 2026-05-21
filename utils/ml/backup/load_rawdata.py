@@ -23,27 +23,27 @@ def load_and_split_data():
 
     print("📊 데이터 로드 완료. 목적별 분리 시작...")
 
-    # 2. [금값 예측 데이터] - 일별 (Gold)
-    # plan.md: 오늘 금값, 전날 대비 변화율, CPI, 환율, 유가, 달러인덱스, VIX, KOSPI200, S&P500
+    # 2. [금값 데이터] - 일별 (Gold)
+    # plan.md: 오늘 금값, CPI, 환율, 유가, 달러인덱스, VIX, KOSPI200, S&P500
     # *CPI는 월별 데이터이므로 일별 병합 시 결측치가 많을 수 있음 (필요시 보간 처리 권장)
     gold_cols = [
-        'date', 'gold', 'gold_pct_change', 'kr_usd_exchange', 
+        'date', 'gold', 'kr_usd_exchange', 
         'wti_oil', 'dxy_proxy', 'vix', 'kospi200', 'sp500','kr_cpi'
     ]
     gold_data = df_d[[c for c in gold_cols if c in df_d.columns]].copy()
     gold_data.to_csv(os.path.join(data_dir, 'gold_data.csv'), index=False, encoding='utf-8-sig')
 
-    # 3. [매매가격지수 예측 데이터] - 월별 (Real Estate)
+    # 3. [매매가격지수 데이터] - 월별 (Real Estate)
     # plan.md: 이번달 매매지수, CPI, 실업률, 기준금리, 주담대금리, KOSPI200, 변화율, 거래건수, M2 등
     re_cols = [
-        'date', 'house_price_idx', 'house_price_idx_pct', 'kr_cpi', 
+        'date', 'house_price_idx', 'kr_cpi', 
         'kr_unemployment', 'kr_base_rate', 'kr_mortgage_rate', 
         'kospi200', 'apt_trade_count', 'kr_m2', 'buyer_dominance'
     ]
     realestate_data = df_m[[c for c in re_cols if c in df_m.columns]].copy()
     realestate_data.to_csv(os.path.join(data_dir, 'realestate_data.csv'), index=False, encoding='utf-8-sig')
 
-    # 4. [기준금리 예측 데이터] - 월별 (Base Rate)
+    # 4. [기준금리 데이터] - 월별 (Base Rate)
     # plan.md: 이번달 금리, 변화율, CPI, 실업률, 환율, GDP, M2, 미 연준금리, VIX, 유가
     br_cols = [
         'date', 'kr_base_rate', 'kr_cpi', 'kr_unemployment', 

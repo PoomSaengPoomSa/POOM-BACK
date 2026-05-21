@@ -52,13 +52,11 @@ def fetch_fred(api_key, series_id, col_name='value', start=START_DASH, end=END_D
     if resp.status_code != 200: return pd.DataFrame()
     body = resp.json()
     
-    # 🌟 [수정 지점 1] observations 키가 없거나, 리스트가 비어있을(len==0) 경우 빈 DF 반환
     if 'observations' not in body or not body['observations']: 
         return pd.DataFrame()
 
     df = pd.DataFrame(body['observations'])
     
-    # 🌟 [수정 지점 2] DataFrame은 만들어졌으나 date나 value 컬럼이 없는 경우 방어
     if 'date' not in df.columns or 'value' not in df.columns:
         return pd.DataFrame()
 
@@ -144,9 +142,9 @@ def get_max_date_from_db(engine, table_name):
     """DB에 저장된 가장 최근 날짜를 가져옵니다. 테이블이 없으면 None 반환"""
     try:
         with engine.connect() as conn:
-            query = text(f"SELECT MAX(date) FROM {table_name}")
+            query = text(f"SELECT MAX(loaded_date) FROM {table_name}")
             result = conn.execute(query).scalar()
-            return result
+            return pd.to_datetime(result) if result else None
     except Exception:
         return None
 
@@ -154,11 +152,64 @@ def upload_new_records(df, table_name, engine):
     """DB의 마지막 날짜 이후의 새로운 데이터만 필터링하여 Append"""
     if df.empty: return
 
+    # 🌟 [에러 방지] 문자열로 된 날짜를 완벽한 datetime 형태로 강제 변환
+    df['loaded_date'] = pd.to_datetime(df['loaded_date'])
+
+    # 🌟 테이블이 없을 경우를 대비한 명시적 스키마 생성 방어 로직 (IF NOT EXISTS)
+    with engine.begin() as conn:
+        if table_name == 'ml_gold_raw':
+            conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS ml_gold_raw (
+                gr_id INT AUTO_INCREMENT,
+                loaded_date DATETIME NOT NULL,
+                gold DECIMAL(15,2),
+                kr_usd_exchange DECIMAL(15,2),
+                wti_oil DECIMAL(15,2),
+                dxy_proxy DECIMAL(15,2),
+                vix DECIMAL(15,2),
+                kospi200 DECIMAL(15,2),
+                sp500 DECIMAL(15,2),
+                kr_cpi DECIMAL(15,2),
+                PRIMARY KEY (gr_id, loaded_date)
+            )"""))
+        elif table_name == 'ml_baserate_raw':
+            conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS ml_baserate_raw (
+                br_id INT AUTO_INCREMENT,
+                loaded_date DATETIME NOT NULL,
+                kr_base_rate DECIMAL(15,2),
+                kr_cpi DECIMAL(15,2),
+                kr_unemployment DECIMAL(15,2),
+                kr_usd_exchange DECIMAL(15,2),
+                kr_gdp DECIMAL(15,2),
+                kr_m2 DECIMAL(15,2),
+                us_fed_rate DECIMAL(15,2),
+                vix DECIMAL(15,2),
+                wti_oil DECIMAL(15,2),
+                PRIMARY KEY (br_id, loaded_date)
+            )"""))
+        elif table_name == 'ml_realestate_raw':
+            conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS ml_realestate_raw (
+                rr_id INT AUTO_INCREMENT,
+                loaded_date DATETIME NOT NULL,
+                house_price_idx DECIMAL(15,2),
+                kr_cpi DECIMAL(15,2),
+                kr_unemployment DECIMAL(15,2),
+                kr_base_rate DECIMAL(15,2),
+                kr_mortgage_rate DECIMAL(15,2),
+                kospi200 DECIMAL(15,2),
+                apt_trade_count DECIMAL(15,2),
+                kr_m2 DECIMAL(15,2),
+                buyer_dominance DECIMAL(15,2),
+                PRIMARY KEY (rr_id, loaded_date)
+            )"""))
+
     max_date = get_max_date_from_db(engine, table_name)
     
     if max_date:
         # DB에 데이터가 존재하면 최신 날짜 이후의 데이터만 슬라이싱
-        new_data = df[df['date'] > max_date].copy()
+        new_data = df[df['loaded_date'] > max_date].copy()
     else:
         # 테이블이 처음 생성되는 경우 전체 적재
         new_data = df.copy()
@@ -167,12 +218,14 @@ def upload_new_records(df, table_name, engine):
         print(f" ╰─ ⏸️ [{table_name}] 이미 최신 상태입니다. (업데이트 없음)")
     else:
         new_data.to_sql(name=table_name, con=engine, if_exists='append', index=False)
-        print(f" ╰─ 🚀 [{table_name}] 새로운 데이터 {len(new_data)}건 적재 완료! (이후 날짜: {new_data['date'].iloc[0]} ~)")
+        print(f" ╰─ 🚀 [{table_name}] 새로운 데이터 {len(new_data)}건 적재 완료! (이후 날짜: {new_data['loaded_date'].iloc[0].strftime('%Y-%m-%d')} ~)")
+
 
 # ═══════════════════════════════════════════════════
 #  3. 메인 실행 파이프라인
 # ═══════════════════════════════════════════════════
 def run_daily_pipeline():
+    # 경로 3단계 위로 수정
     base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     load_dotenv(dotenv_path=os.path.join(base_dir, '.env'))
 
@@ -261,17 +314,20 @@ def run_daily_pipeline():
     # Gold (Daily)
     gold_cols = ['date', 'gold', 'kr_usd_exchange', 'wti_oil', 'dxy_proxy', 'vix', 'kospi200', 'sp500', 'kr_cpi']
     gold_data = master_d[[c for c in gold_cols if c in master_d.columns]].copy() if not master_d.empty else pd.DataFrame()
-    upload_new_records(gold_data, 'ml_gold', engine)
+    if not gold_data.empty: gold_data.rename(columns={'date': 'loaded_date'}, inplace=True)
+    upload_new_records(gold_data, 'ml_gold_raw', engine)
 
     # Real Estate (Monthly)
     re_cols = ['date', 'house_price_idx', 'kr_cpi', 'kr_unemployment', 'kr_base_rate', 'kr_mortgage_rate', 'kospi200', 'apt_trade_count', 'kr_m2', 'buyer_dominance']
     re_data = master_m[[c for c in re_cols if c in master_m.columns]].copy() if not master_m.empty else pd.DataFrame()
-    upload_new_records(re_data, 'ml_realestate', engine)
+    if not re_data.empty: re_data.rename(columns={'date': 'loaded_date'}, inplace=True)
+    upload_new_records(re_data, 'ml_realestate_raw', engine)
 
     # Base Rate (Monthly)
     br_cols = ['date', 'kr_base_rate', 'kr_cpi', 'kr_unemployment', 'kr_usd_exchange', 'kr_gdp', 'kr_m2', 'us_fed_rate', 'vix', 'wti_oil']
     br_data = master_m[[c for c in br_cols if c in master_m.columns]].copy() if not master_m.empty else pd.DataFrame()
-    upload_new_records(br_data, 'ml_baserate', engine)
+    if not br_data.empty: br_data.rename(columns={'date': 'loaded_date'}, inplace=True)
+    upload_new_records(br_data, 'ml_baserate_raw', engine)
 
     print("\n🎉 일일 데이터 자동 수집 및 적재 파이프라인 완료!")
 
