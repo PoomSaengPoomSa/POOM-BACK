@@ -6,7 +6,7 @@ from app.dependencies import get_current_user
 from app.schemas.notification import NotificationResponse, NotificationCountResponse
 from app.services import notification as notification_service
 
-router = APIRouter(tags=["notification"])
+router = APIRouter()
 
 
 @router.get("/notifications", response_model=List[NotificationResponse])
