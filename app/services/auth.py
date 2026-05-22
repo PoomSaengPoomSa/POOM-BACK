@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 from app.models.account import Account, PbUser
+from app.models.branch import Branch
 from app.schemas.auth import (
     LoginRequest,
     SignupRequest,
@@ -16,7 +17,7 @@ from app.utils.security import (
     hash_password,
     verify_token,
 )
-from datetime import date
+from datetime import date, datetime
 
 
 def check_password(plain: str, stored: str) -> bool:
@@ -43,9 +44,19 @@ async def login(request: LoginRequest, db: Session) -> TokenResponse:
     access_token = create_access_token(token_data)
     refresh_token = create_refresh_token(token_data)
 
+    # PB 유저의 이름 조회
+    user_name = "PB직원"
+    if account.role == "admin":
+        user_name = "관리자"
+    else:
+        pb_user = account.pb_user
+        if pb_user:
+            user_name = pb_user.name
+
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
+        name=user_name,
     )
 
 
@@ -67,7 +78,35 @@ async def signup(request: SignupRequest, db: Session) -> UserResponse:
             detail="이미 존재하는 이메일입니다.",
         )
 
-    # 계정 생성 (암호화하여 저장)
+    # 지점 정보 조회
+    branch_record = db.query(Branch).filter(Branch.name == request.branch).first()
+    if not branch_record:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="존재하지 않는 지점입니다.",
+        )
+
+    # 생년월일 파싱 (예: 2002.05.04 또는 2002-05-04)
+    try:
+        clean_date = request.birth_date.replace(".", "-")
+        birth_date_parsed = datetime.strptime(clean_date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="생년월일 형식이 올바르지 않습니다. (예: 2002.05.04)",
+        )
+
+    # 입사일 파싱 (예: 2026.05.22 또는 2026-05-22)
+    try:
+        clean_start_date = request.start_date.replace(".", "-")
+        start_date_parsed = datetime.strptime(clean_start_date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="입사일 형식이 올바르지 않습니다. (예: 2026.05.22)",
+        )
+
+    # 계정 생성 (암호화하여 저장, 역할은 user)
     new_account = Account(
         id=request.u_id,
         password=hash_password(request.password),
@@ -76,17 +115,17 @@ async def signup(request: SignupRequest, db: Session) -> UserResponse:
     db.add(new_account)
     db.flush()
 
-    # 기본 PB User 프로필 생성 (임시 데이터)
+    # PB User 프로필 생성 및 컬럼 값 지정
     new_pb = PbUser(
         u_id=request.u_id,
         name=request.name,
         email=request.email,
-        number="010-0000-0000",
-        branch=1,  # 임시 기본 지점 ID
+        number=request.number,
+        branch=branch_record.b_id,
         status="재직",
         position="PB",
-        start_date=date.today(),
-        birth_date=date(1990, 1, 1),
+        start_date=start_date_parsed,
+        birth_date=birth_date_parsed,
     )
     db.add(new_pb)
     db.commit()
@@ -126,4 +165,26 @@ async def refresh_token(request: RefreshRequest) -> TokenResponse:
         access_token=new_access,
         refresh_token=new_refresh,
     )
+
+
+async def get_me(current_user, db: Session) -> UserResponse:
+    """현재 로그인한 유저의 최신 정보 조회"""
+    user_name = "PB직원"
+    email = ""
+    if current_user.role == "admin":
+        user_name = "관리자"
+        email = "admin@poom.com"
+    else:
+        pb_user = current_user.pb_user
+        if pb_user:
+            user_name = pb_user.name
+            email = pb_user.email
+
+    return UserResponse(
+        u_id=current_user.id,
+        name=user_name,
+        email=email,
+        role=current_user.role,
+    )
+
 

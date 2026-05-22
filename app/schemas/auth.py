@@ -9,10 +9,17 @@ class LoginRequest(BaseModel):
 
 # 회원가입 요청
 class SignupRequest(BaseModel):
+    u_id: str = Field(alias="id")  # 프론트엔드 사번(id) 매핑
+    password: str
     name: str
     email: str
-    u_id: str
-    password: str
+    birth_date: str = Field(alias="birthDate")  # 프론트엔드 birthDate(YYYY.MM.DD) 매핑
+    region: str
+    branch: str  # 지점명 (예: "종로금융센터")
+    number: str  # 전화번호
+    start_date: str = Field(alias="startDate")  # 프론트엔드 startDate(YYYY.MM.DD) 매핑
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 # 토큰 갱신 요청
@@ -25,6 +32,7 @@ class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+    name: str | None = None
 
 
 # 유저 정보 응답
