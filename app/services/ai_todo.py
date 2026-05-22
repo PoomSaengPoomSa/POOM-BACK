@@ -42,6 +42,30 @@ async def confirm_ai_todo(
     schedule_ids = []
     
     todos = db.query(AiTodo).filter(AiTodo.at_id.in_(request.at_ids)).all()
+    
+    from datetime import timedelta
+    from fastapi import HTTPException, status
+    
+    # 1. 1차 패스로 모든 AI To-Do의 중복 여부를 정밀 검증
+    for t in todos:
+        if not t.is_checked:
+            start_dt = t.execution_date
+            end_dt = t.execution_date + timedelta(hours=1)
+            
+            # DB 상에서 겹치는 일정이 있는지 검증 (날은 물론 시간대까지 겹치면 안 됨)
+            overlap_exists = db.query(Schedule).filter(
+                Schedule.u_id == t.u_id,
+                Schedule.execution_date < end_dt,
+                Schedule.end_datetime > start_dt
+            ).first()
+            
+            if overlap_exists:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"추천 일정 '{t.title}'의 시간대({start_dt.strftime('%H:%M')} ~ {end_dt.strftime('%H:%M')})에 이미 겹치는 일정이 존재합니다.",
+                )
+                
+    # 2. 검증 통과 후 My To-Do(일정)로 안전하게 일괄 등록
     for t in todos:
         if not t.is_checked:
             t.is_checked = True
@@ -54,7 +78,6 @@ async def confirm_ai_todo(
             }
             sched_cat = category_mapping.get(t.category, '상담')
             
-            from datetime import timedelta
             new_sched = Schedule(
                 title=t.title,
                 memo=t.memo or "AI 추천으로 등록된 일정",
