@@ -114,12 +114,27 @@ async def delete_schedule(
     schedule_id: int, current_user, db: Session
 ) -> MessageResponse:
     """일정 삭제"""
+    from app.models.notification import Notification
+    from app.models.ai_todo import AiTodo
+
     sched = db.query(Schedule).filter(Schedule.s_id == schedule_id).first()
     if not sched:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="일정을 찾을 수 없습니다.",
         )
+        
+    # 1. 외래키(s_id) 제약조건 에러를 방지하기 위해 연관된 알림(Notification)의 s_id를 NULL로 설정
+    db.query(Notification).filter(Notification.s_id == schedule_id).update(
+        {Notification.s_id: None}, synchronize_session=False
+    )
+    
+    # 2. AI To Do 추천을 통해 자동 생성되었던 일정일 경우, AI To Do 목록에서 복원되도록 처리
+    if sched.at_id:
+        todo = db.query(AiTodo).filter(AiTodo.at_id == sched.at_id).first()
+        if todo:
+            todo.is_checked = False
+
     db.delete(sched)
     db.commit()
     return MessageResponse(message="일정이 정상적으로 삭제되었습니다.")
