@@ -7,28 +7,70 @@ class SeasonalProduct(BaseModel):
     pd_id: int
     name: str
     type: str
-    explanation: Optional[str] = None
-    is_main: bool = False
-    update_date: date
+    update_date: str  # Format: "YYYY-MM-DD"
+
     model_config = ConfigDict(from_attributes=True)
 
 
-class SeasonalProductList(BaseModel):
+class SeasonalProductListResponse(BaseModel):
+    total_count: int
     products: List[SeasonalProduct]
-    total: int
 
 
-class SeasonalProductDetail(BaseModel):
+class SeasonalProductDetailResponse(BaseModel):
     pd_id: int
     name: str
     type: str
     explanation: str
+    update_date: str  # Format: "YYYY-MM-DD"
+    
+    # 🚀 Rich UI Developer Enhancements
+    issuer: str
+    features: str
+    target_customer: str
+    expected_return: float
+    return_type: str
+    season: str
     is_main: bool
-    update_date: date
     matched_customer_count: Optional[int] = None
+
     model_config = ConfigDict(from_attributes=True)
 
 
-SeasonalProductListResponse = SeasonalProductList
-SeasonalProductDetailResponse = SeasonalProductDetail
+
+class PersonalKpiResponse(BaseModel):
+    name: str
+    customer_count: int
+    customer_goal: int
+    customer_rate: float
+    customer_delta: Optional[float] = None
+    aum: int
+    aum_goal: int
+    aum_rate: float
+    aum_delta: Optional[float] = None
+    non_interest: int
+    non_interest_goal: int
+    non_interest_rate: float
+    non_interest_delta: Optional[float] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BranchKpiResponse(BaseModel):
+    branch_name: str
+    customer_count: int
+    customer_goal: int
+    customer_rate: float
+    customer_delta: Optional[float] = None
+    aum: int
+    aum_goal: int
+    aum_rate: float
+    aum_delta: Optional[float] = None
+    non_interest: int
+    non_interest_goal: int
+    non_interest_rate: float
+    non_interest_delta: Optional[float] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
 
