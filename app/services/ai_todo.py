@@ -54,11 +54,13 @@ async def confirm_ai_todo(
             }
             sched_cat = category_mapping.get(t.category, '상담')
             
+            from datetime import timedelta
             new_sched = Schedule(
                 title=t.title,
-                memo=t.memo or "AI To Do 추천에서 My To Do 및 일정으로 등록된 업무입니다.",
+                memo=t.memo or "AI 추천으로 등록된 일정",
                 category=sched_cat,
                 execution_date=t.execution_date,
+                end_datetime=t.execution_date + timedelta(hours=1),
                 u_id=t.u_id,
                 c_id=t.c_id,
                 at_id=t.at_id
