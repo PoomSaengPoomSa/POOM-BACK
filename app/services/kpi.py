@@ -11,6 +11,8 @@ from app.models.account import PbUser
 from app.models.branch import Branch
 from app.models.kpi import Kpi
 from app.models.product import Product, ProductMatching
+from app.models.in_charge import InCharge
+from app.models.customer import Customer
 
 
 async def get_seasonal_products(
@@ -59,16 +61,38 @@ async def get_seasonal_product_detail(
             detail="존재하지 않는 상품",
         )
 
-    # 3. 매칭된 고객 수 연산 (ProductMatching 테이블에서 적합(is_suitable=True) 판정 고객 카운트)
-    matched_count = (
-        db.query(ProductMatching)
+    # 3. 로그인한 PB의 담당 고객 중 적합 판정을 받은 고객 리스트 조회
+    suitable_customers_data = (
+        db.query(
+            Customer.c_id,
+            Customer.name,
+            Customer.grade,
+            Customer.tendency,
+            ProductMatching.reason,
+        )
+        .join(ProductMatching, Customer.c_id == ProductMatching.c_id)
+        .join(InCharge, Customer.c_id == InCharge.c_id)
         .filter(
             ProductMatching.pd_id == product_id,
             ProductMatching.is_suitable == True,
+            InCharge.u_id == current_user.id,
         )
-        .count()
+        .all()
     )
 
+    suitable_customers = [
+        {
+            "c_id": row.c_id,
+            "name": row.name,
+            "grade": row.grade,
+            "tendency": row.tendency,
+            "reason": row.reason,
+        }
+        for row in suitable_customers_data
+    ]
+
+    # 4. 로그인한 PB의 담당 적합 고객 수 산출
+    matched_count = len(suitable_customers)
     return SeasonalProductDetailResponse(
         pd_id=product.pd_id,
         name=product.name,
@@ -83,6 +107,7 @@ async def get_seasonal_product_detail(
         season=product.season,
         is_main=product.is_main,
         matched_customer_count=matched_count,
+        suitable_customers=suitable_customers,
     )
 
 
