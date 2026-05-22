@@ -16,10 +16,11 @@ class ScheduleCreate(BaseModel):
 class ScheduleUpdate(BaseModel):
     category: Optional[str] = None
     content: Optional[str] = None
-    start_datetime: Optional[datetime] = None
-    end_datetime: Optional[datetime] = None
+    start_datetime: Optional[datetime] = Field(default=None, alias="startDatetime")
+    end_datetime: Optional[datetime] = Field(default=None, alias="endDatetime")
     color: Optional[str] = None
     memo: Optional[str] = None
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ScheduleResponse(BaseModel):
@@ -28,6 +29,7 @@ class ScheduleResponse(BaseModel):
     memo: Optional[str] = None
     category: Optional[str] = None
     execution_date: datetime
+    end_datetime: datetime
     u_id: str
     c_id: Optional[int] = None
     at_id: Optional[int] = None

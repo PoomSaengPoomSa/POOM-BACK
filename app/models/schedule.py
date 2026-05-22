@@ -19,6 +19,7 @@ class Schedule(Base):
     memo = Column(String(80))
     category = Column(String(10))
     execution_date = Column(DateTime, nullable=False)
+    end_datetime = Column(DateTime, nullable=False)
     u_id = Column(String(50), ForeignKey("pb_user.u_id"), nullable=False)
     c_id = Column(Integer, ForeignKey("customer.c_id"), nullable=True)
     at_id = Column(Integer, ForeignKey("ai_todo.at_id"), nullable=True)
