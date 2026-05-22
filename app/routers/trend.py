@@ -24,7 +24,7 @@ from app.schemas.trend import (
 )
 from app.services import trend as trend_service
 
-router = APIRouter(tags=["trend"])
+router = APIRouter(tags=["Trend"])
 
 
 @router.get("/dashboard", response_model=TrendDashboardResponse)

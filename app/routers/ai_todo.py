@@ -11,7 +11,7 @@ from app.schemas.ai_todo import (
 )
 from app.services import ai_todo as ai_todo_service
 
-router = APIRouter(tags=["ai-todo"])
+router = APIRouter(tags=["AI Todo"])
 
 
 @router.get("/", response_model=AiTodoListResponse)

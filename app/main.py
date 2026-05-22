@@ -4,7 +4,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import auth, admin, schedule, customer, trend, ai_todo, kpi
+from app.routers import auth, admin, schedule, customer, trend, ai_todo, kpi, notification
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +44,8 @@ app.include_router(customer.router, prefix="/api/v1/customers", tags=["Customer"
 app.include_router(trend.router, prefix="/api/v1/trend", tags=["Trend"])
 app.include_router(ai_todo.router, prefix="/api/v1/ai-todo", tags=["AI Todo"])
 app.include_router(kpi.router, prefix="/api/v1/kpi", tags=["KPI"])
+app.include_router(notification.router, prefix="/api/v1", tags=["Notification"])
+
 
 
 @app.get("/health", tags=["Health"])

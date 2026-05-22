@@ -20,7 +20,7 @@ from app.schemas.admin import (
 )
 from app.services import admin as admin_service
 
-router = APIRouter(tags=["admin"])
+router = APIRouter(tags=["Admin"])
 
 
 @router.get("/system/dashboard", response_model=SystemDashboardResponse)
