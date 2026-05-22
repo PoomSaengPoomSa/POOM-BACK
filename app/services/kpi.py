@@ -93,7 +93,6 @@ async def get_seasonal_product_detail(
 
     # 4. 로그인한 PB의 담당 적합 고객 수 산출
     matched_count = len(suitable_customers)
-
     return SeasonalProductDetailResponse(
         pd_id=product.pd_id,
         name=product.name,

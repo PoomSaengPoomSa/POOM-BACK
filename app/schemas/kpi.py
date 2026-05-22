@@ -25,8 +25,6 @@ class SuitableCustomerInfo(BaseModel):
     reason: str
 
     model_config = ConfigDict(from_attributes=True)
-
-
 class SeasonalProductDetailResponse(BaseModel):
     pd_id: int
     name: str
