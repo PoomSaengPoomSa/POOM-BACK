@@ -134,6 +134,9 @@ async def get_customer_memo_detail(
 
 # NOTE: API 명세서에서는 /api/customers/... 경로이나, 통합 처리를 위해 동일 라우터에 포함
 @router.get(
+    "/{customer_id}/visit-statistics", response_model=VisitStatisticsResponse
+)
+@router.get(
     "/{customer_id}/visits/statistics", response_model=VisitStatisticsResponse
 )
 async def get_visit_statistics(

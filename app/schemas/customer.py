@@ -59,15 +59,33 @@ class CustomerDetailResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class ProductMatchResponse(BaseModel):
+class ProductMatchItem(BaseModel):
     product_name: str
-    match_status: str
+    product_explanation: str
+    is_suitable: bool
+    reason: str
     product_type: str
 
 
+class MainProductMatchResponse(BaseModel):
+    items: List[ProductMatchItem]
+
+
+class CustomerFeatureItem(BaseModel):
+    category: str
+    text: str
+    date: str
+    color: str
+
+
 class CustomerFeatureResponse(BaseModel):
-    features: List[str]
+    features: List[CustomerFeatureItem]
     category_summary: dict
+
+
+class VisitMonthCount(BaseModel):
+    month: str
+    count: int
 
 
 class VisitStatisticsResponse(BaseModel):
@@ -75,6 +93,7 @@ class VisitStatisticsResponse(BaseModel):
     avg_visit_cycle_days: Optional[int] = None
     last_visit_date: Optional[date] = None
     total_visits: int = 0
+    monthly_visits: Optional[List[VisitMonthCount]] = None
 
 
 class ChurnRiskResponse(BaseModel):
@@ -128,7 +147,7 @@ class PaginatedCustomerResponse(BaseModel):
 
 # Aliases for router/service compatibility
 CustomerProfileResponse = CustomerDetailResponse
-MainProductMatchResponse = ProductMatchResponse
+ProductMatchResponse = MainProductMatchResponse
 MemoListResponse = MemoTimelineResponse
 
 

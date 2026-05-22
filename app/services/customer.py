@@ -1,8 +1,12 @@
 from typing import Optional, List
+from datetime import datetime
+from sqlalchemy import extract
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 from app.models.customer import Customer
 from app.models.in_charge import InCharge
+from app.models.schedule import Schedule
+from app.models.churn_level import ChurnLevel
 from app.schemas.customer import (
     CustomerCreate,
     CustomerUpdate,
@@ -17,7 +21,9 @@ from app.schemas.customer import (
     ChurnRiskResponse,
     PortfolioResponse,
     MessageResponse,
+    VisitMonthCount,
 )
+
 
 
 async def get_customers(
@@ -60,9 +66,12 @@ async def create_customer(
     request: CustomerCreate, current_user, db: Session
 ) -> CustomerProfileResponse:
     """고객 등록"""
-    # 데모용 기본값 기반 생성
+    from sqlalchemy import func
+    max_id = db.query(func.max(Customer.c_id)).scalar()
+    new_id = (max_id or 0) + 1
+
     new_cust = Customer(
-        c_id=db.query(Customer).count() + 2001,  # 신규 ID 자동 생성
+        c_id=new_id,
         name=request.name,
         number=request.phone,
         birthday=request.birth,
@@ -82,6 +91,15 @@ async def create_customer(
         llm_insight="신규 등록 고객입니다.",
     )
     db.add(new_cust)
+    db.flush()
+
+    # 담당자 테이블(in_charge) 매핑 레코드 추가
+    in_charge_mapping = InCharge(
+        u_id=current_user.id,
+        c_id=new_cust.c_id
+    )
+    db.add(in_charge_mapping)
+    
     db.commit()
     db.refresh(new_cust)
     return new_cust
@@ -126,6 +144,10 @@ async def update_customer(
         customer.address = request.address
     if request.grade is not None:
         customer.grade = request.grade
+    if request.birth is not None:
+        customer.birthday = request.birth
+    if request.investment_type is not None:
+        customer.tendency = request.investment_type
         
     db.commit()
     db.refresh(customer)
@@ -142,6 +164,16 @@ async def delete_customer(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="고객을 찾을 수 없습니다.",
         )
+
+    # 외래키 제약 조건으로 인한 삭제 실패를 방지하기 위해 자식 테이블 레코드 선제 삭제
+    db.query(InCharge).filter(InCharge.c_id == customer_id).delete(synchronize_session=False)
+    db.query(ChurnLevel).filter(ChurnLevel.c_id == customer_id).delete(synchronize_session=False)
+    db.query(Schedule).filter(Schedule.c_id == customer_id).delete(synchronize_session=False)
+
+    from app.models.customer import CustomerInformation, CustomerRelationship
+    db.query(CustomerInformation).filter(CustomerInformation.c_id == customer_id).delete(synchronize_session=False)
+    db.query(CustomerRelationship).filter(CustomerRelationship.c_id == customer_id).delete(synchronize_session=False)
+
     db.delete(customer)
     db.commit()
     return MessageResponse(message="고객 정보가 정상적으로 삭제되었습니다.")
@@ -151,32 +183,88 @@ async def get_main_product_match(
     customer_id: int, current_user, db: Session
 ) -> MainProductMatchResponse:
     """주력 상품 매칭"""
-    return MainProductMatchResponse(
-        product_name="우리 테마형 국내 리츠 펀드",
-        match_status="부적합",
-        product_type="펀드",
+    from app.models.product import ProductMatching
+    from app.schemas.customer import ProductMatchItem
+
+    # Query all matching records for the customer, ordered by created_date desc
+    matchings = (
+        db.query(ProductMatching)
+        .filter(ProductMatching.c_id == customer_id)
+        .order_by(ProductMatching.created_date.desc())
+        .all()
     )
+
+    # Filter to get only the most recent matching for each unique pd_id
+    unique_matchings = {}
+    for m in matchings:
+        if m.pd_id not in unique_matchings:
+            unique_matchings[m.pd_id] = m
+
+    items = []
+    # Map the unique matchings to ProductMatchItem DTOs
+    for m in unique_matchings.values():
+        if m.product:
+            items.append(
+                ProductMatchItem(
+                    product_name=m.product.name,
+                    product_explanation=m.product.explanation,
+                    is_suitable=m.is_suitable,
+                    reason=m.reason,
+                    product_type=m.product.type,
+                )
+            )
+
+    return MainProductMatchResponse(items=items)
 
 
 async def get_customer_feature(
     customer_id: int, current_user, db: Session
 ) -> CustomerFeatureResponse:
     """메모 기반 고객 특징"""
+    from app.models.customer import CustomerInformation
+
+    infos = (
+        db.query(CustomerInformation)
+        .filter(CustomerInformation.c_id == customer_id)
+        .order_by(CustomerInformation.created_date.desc())
+        .all()
+    )
+
+    CATEGORY_COLORS = {
+        "기호": "#f97316",
+        "관계": "#db2777",
+        "상품": "#0284c7",
+        "성향": "#8b5cf6",
+        "건강": "#10b981",
+        "기타": "#64748b",
+    }
+
+    from app.schemas.customer import CustomerFeatureItem
+
+    features = []
+    category_summary = {}
+
+    for info in infos:
+        date_str = (
+            info.created_date.strftime("%Y.%m.%d")
+            if info.created_date
+            else datetime.now().strftime("%Y.%m.%d")
+        )
+        color = CATEGORY_COLORS.get(info.category, "#64748b")
+        features.append(
+            CustomerFeatureItem(
+                category=info.category,
+                text=info.contents,
+                date=date_str,
+                color=color,
+            )
+        )
+        if info.category not in category_summary:
+            category_summary[info.category] = info.contents
+
     return CustomerFeatureResponse(
-        features=[
-            "비타500 싫어함, 아메리카노 더블샷 선호",
-            "배우자가 최근 퇴직 후 자산 재배치 관심 증가",
-            "달러 자산 비중 너무 높다며 불안감 표현, 국내 상품 선호",
-            "빠른 의사결정 선호, 서류 설명 길면 집중력 저하",
-            "무릎 수술 후 장기 요양 중 - 방문 일정 오전 선호",
-        ],
-        category_summary={
-            "기호": "아메리카노 더블샷 선호",
-            "관계": "배우자 퇴직으로 자산 재배치 관심",
-            "성향": "빠른 의사결정 선호",
-            "상품": "국내 상품 선호",
-            "건강": "장기 요양 중, 오전 방문 선호",
-        },
+        features=features,
+        category_summary=category_summary,
     )
 
 
@@ -206,10 +294,64 @@ async def get_visit_statistics(
     customer_id: int, current_user, db: Session
 ) -> VisitStatisticsResponse:
     """방문 주기 통계"""
+    # 오늘 날짜 시간 기준으로 오늘 포함 이전의 상담 방문 기록만 조회 (마지막 방문일 계산용)
+    now = datetime.now()
+    visits = db.query(Schedule).filter(
+        Schedule.u_id == current_user.id,
+        Schedule.c_id == customer_id,
+        Schedule.category == "상담",
+        Schedule.execution_date <= now
+    ).order_by(Schedule.execution_date.asc()).all()
+
+    total_visits = len(visits)
+    avg_visit_cycle_days = None
+    last_visit_date = None
+
+    if total_visits > 0:
+        last_visit_date = visits[-1].execution_date.date()
+        
+    if total_visits >= 2:
+        total_days = (visits[-1].execution_date - visits[0].execution_date).days
+        avg_visit_cycle_days = round(total_days / (total_visits - 1))
+
+    # 최근 8개월 월별 상담 횟수 계산 (오늘 기준 이전 상담 기록만 포함)
+    curr_year = now.year
+    curr_month = now.month
+
+    months_to_query = []
+    for _ in range(8):
+        months_to_query.append((curr_year, curr_month))
+        curr_month -= 1
+        if curr_month == 0:
+            curr_month = 12
+            curr_year -= 1
+
+    months_to_query.reverse()
+
+    monthly_visits = []
+    for y, m in months_to_query:
+        count = db.query(Schedule).filter(
+            Schedule.u_id == current_user.id,
+            Schedule.c_id == customer_id,
+            Schedule.category == "상담",
+            Schedule.execution_date <= now,
+            extract('year', Schedule.execution_date) == y,
+            extract('month', Schedule.execution_date) == m
+        ).count()
+        
+        monthly_visits.append(
+            VisitMonthCount(
+                month=f"{m:02d}월",
+                count=count
+            )
+        )
+
     return VisitStatisticsResponse(
         customer_id=customer_id,
-        avg_visit_cycle_days=53,
-        total_visits=4,
+        avg_visit_cycle_days=avg_visit_cycle_days,
+        last_visit_date=last_visit_date,
+        total_visits=total_visits,
+        monthly_visits=monthly_visits,
     )
 
 
@@ -217,10 +359,23 @@ async def get_churn_risk(
     customer_id: int, current_user, db: Session
 ) -> ChurnRiskResponse:
     """이탈 위험도 분석"""
+    churn = db.query(ChurnLevel).filter(
+        ChurnLevel.c_id == customer_id
+    ).order_by(ChurnLevel.created_date.desc()).first()
+
+    if not churn:
+        return ChurnRiskResponse(
+            customer_id=customer_id,
+            grade=None,
+            reason=None,
+            created_date=None,
+        )
+
     return ChurnRiskResponse(
         customer_id=customer_id,
-        grade="양호",
-        reason="최근 상담 만족도 매우 높음",
+        grade=churn.grade,
+        reason=churn.reason,
+        created_date=churn.created_date,
     )
 
 
