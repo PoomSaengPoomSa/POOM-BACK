@@ -57,6 +57,8 @@ async def get_customers(
                 email=c.email,
                 tendency=c.tendency,
                 total_assets=c.total_assets,
+                gender=c.gender,
+                grade=c.grade,
             )
         )
     return result
@@ -76,7 +78,7 @@ async def create_customer(
         number=request.phone,
         birthday=request.birth,
         job=request.job or "무직",
-        gender="M",
+        gender=request.gender or "M",
         email=request.email,
         address=request.address,
         tendency=request.investment_type or "위험중립형",
@@ -148,6 +150,8 @@ async def update_customer(
         customer.birthday = request.birth
     if request.investment_type is not None:
         customer.tendency = request.investment_type
+    if request.gender is not None:
+        customer.gender = request.gender
         
     db.commit()
     db.refresh(customer)

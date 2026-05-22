@@ -13,6 +13,7 @@ class CustomerCreate(BaseModel):
     email: str
     investment_type: Optional[str] = None
     address: str
+    gender: Optional[str] = None
 
 
 class CustomerUpdate(BaseModel):
@@ -24,6 +25,7 @@ class CustomerUpdate(BaseModel):
     email: Optional[str] = None
     investment_type: Optional[str] = None
     address: Optional[str] = None
+    gender: Optional[str] = None
 
 
 class CustomerListResponse(BaseModel):
@@ -33,6 +35,8 @@ class CustomerListResponse(BaseModel):
     email: str
     tendency: str
     total_assets: int
+    gender: Optional[str] = None
+    grade: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
 
