@@ -17,6 +17,16 @@ class SeasonalProductListResponse(BaseModel):
     products: List[SeasonalProduct]
 
 
+class SuitableCustomerInfo(BaseModel):
+    c_id: int
+    name: str
+    grade: str
+    tendency: str
+    reason: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class SeasonalProductDetailResponse(BaseModel):
     pd_id: int
     name: str
@@ -33,6 +43,7 @@ class SeasonalProductDetailResponse(BaseModel):
     season: str
     is_main: bool
     matched_customer_count: Optional[int] = None
+    suitable_customers: List[SuitableCustomerInfo] = []
 
     model_config = ConfigDict(from_attributes=True)
 
