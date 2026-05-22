@@ -20,7 +20,7 @@ from app.schemas.customer import (
 )
 from app.services import customer as customer_service
 
-router = APIRouter(tags=["customer"])
+router = APIRouter(tags=["Customer"])
 
 
 @router.get("/", response_model=List[CustomerListResponse])

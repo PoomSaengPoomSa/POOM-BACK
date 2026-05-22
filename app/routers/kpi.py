@@ -9,7 +9,7 @@ from app.schemas.kpi import (
 )
 from app.services import kpi as kpi_service
 
-router = APIRouter(tags=["kpi"])
+router = APIRouter(tags=["KPI"])
 
 
 @router.get("/seasonal-products", response_model=SeasonalProductListResponse)
