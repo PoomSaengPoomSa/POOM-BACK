@@ -120,26 +120,34 @@ class PortfolioResponse(BaseModel):
 
 
 # 상담 타임라인
-class MemoTimelineItem(BaseModel):
-    cm_id: int
-    consult_date: datetime
-    memo: str
-    u_id: str
-    model_config = ConfigDict(from_attributes=True)
+class TimelineContent(BaseModel):
+    key_needs: Optional[str] = None
+    follow_up: Optional[str] = None
+    next_consult: Optional[str] = None
 
+class TimelineItem(BaseModel):
+    timelineId: int
+    date: str
+    memo: str
+    content: TimelineContent
+
+class ScrollInfo(BaseModel):
+    nextCursor: Optional[int] = None
+    hasNext: bool
 
 class MemoTimelineResponse(BaseModel):
-    memos: List[MemoTimelineItem]
-    next_cursor: Optional[int] = None
+    message: str
+    timelines: List[TimelineItem]
+    scrollInfo: ScrollInfo
 
 
 class MemoDetailResponse(BaseModel):
+    message: str
     cm_id: int
-    consult_date: datetime
+    date: str
+    title: str
     memo: str
-    u_id: str
-    report_content: Optional[str] = None
-    model_config = ConfigDict(from_attributes=True)
+    content: TimelineContent
 
 
 class PaginatedCustomerResponse(BaseModel):
@@ -157,3 +165,63 @@ MemoListResponse = MemoTimelineResponse
 
 class MessageResponse(BaseModel):
     message: str
+
+
+class GenerateReportRequest(BaseModel):
+    memo: str
+    consult_date: str
+
+
+class GenerateReportData(BaseModel):
+    customer_name: str
+    grade: str
+    total_assets: str
+    key_needs: str
+    follow_up: str
+    next_consult: str
+
+
+class GenerateReportResponse(BaseModel):
+    status: int
+    message: str
+    data: GenerateReportData
+
+
+class SaveReportContent(BaseModel):
+    key_needs: str
+    follow_up: str
+    next_consult: str
+
+
+class SaveReportRequest(BaseModel):
+    memo: str
+    consult_date: str
+    content: SaveReportContent
+
+
+class SaveReportResponseData(BaseModel):
+    cm_id: int
+    cr_id: int
+    created_at: str
+
+
+class SaveReportResponse(BaseModel):
+    status: int
+    message: str
+    data: SaveReportResponseData
+
+
+class SimulatorChatRequest(BaseModel):
+    question: str
+    additional_notes: Optional[str] = None
+
+
+class SimulatorChatData(BaseModel):
+    answer: str
+    simulated_at: str
+
+
+class SimulatorChatResponse(BaseModel):
+    status: int
+    message: str
+    data: SimulatorChatData

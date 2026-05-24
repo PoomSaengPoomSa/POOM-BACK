@@ -17,6 +17,12 @@ from app.schemas.customer import (
     ChurnRiskResponse,
     PortfolioResponse,
     MessageResponse,
+    GenerateReportRequest,
+    GenerateReportResponse,
+    SaveReportRequest,
+    SaveReportResponse,
+    SimulatorChatRequest,
+    SimulatorChatResponse,
 )
 from app.services import customer as customer_service
 
@@ -169,3 +175,42 @@ async def get_portfolio(
 ):
     """자산 보유 현황"""
     return await customer_service.get_portfolio(customer_id, current_user, db)
+
+
+@router.post("/{customer_id}/reports/generate", response_model=GenerateReportResponse)
+async def generate_ai_report(
+    customer_id: int,
+    request: GenerateReportRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """메모어시스턴트 AI 보고서 생성"""
+    return await customer_service.generate_ai_report(
+        customer_id, request, current_user, db
+    )
+
+
+@router.post("/{customer_id}/reports", response_model=SaveReportResponse, status_code=201)
+async def save_ai_report(
+    customer_id: int,
+    request: SaveReportRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """AI 보고서 및 원본메모 저장"""
+    return await customer_service.save_ai_report(
+        customer_id, request, current_user, db
+    )
+
+
+@router.post("/{customer_id}/simulator/chat", response_model=SimulatorChatResponse)
+async def simulator_chat(
+    customer_id: int,
+    request: SimulatorChatRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """시뮬레이터 AI 질의 및 자산 시뮬레이션"""
+    return await customer_service.simulator_chat(
+        customer_id, request, current_user, db
+    )
