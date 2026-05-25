@@ -19,7 +19,6 @@ from app.schemas.customer import (
     MemoDetailResponse,
     VisitStatisticsResponse,
     ChurnRiskResponse,
-    PortfolioResponse,
     MessageResponse,
     VisitMonthCount,
     GenerateReportResponse,
@@ -533,16 +532,6 @@ async def get_churn_risk(
         created_date=churn.created_date,
     )
 
-
-async def get_portfolio(
-    customer_id: int, current_user, db: Session
-) -> PortfolioResponse:
-    """자산 보유 현황"""
-    return PortfolioResponse(
-        customer_id=customer_id,
-        items=[],
-        total_balance=0,
-    )
 
 
 def format_assets_to_str(asset_val):
