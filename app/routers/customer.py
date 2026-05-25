@@ -15,7 +15,6 @@ from app.schemas.customer import (
     MemoDetailResponse,
     VisitStatisticsResponse,
     ChurnRiskResponse,
-    PortfolioResponse,
     MessageResponse,
     GenerateReportRequest,
     GenerateReportResponse,
@@ -140,10 +139,7 @@ async def get_customer_memo_detail(
 
 # NOTE: API 명세서에서는 /api/customers/... 경로이나, 통합 처리를 위해 동일 라우터에 포함
 @router.get(
-    "/{customer_id}/visit-statistics", response_model=VisitStatisticsResponse
-)
-@router.get(
-    "/{customer_id}/visits/statistics", response_model=VisitStatisticsResponse
+    "/{customer_id}/visits-statistics", response_model=VisitStatisticsResponse
 )
 async def get_visit_statistics(
     customer_id: int,
@@ -167,14 +163,7 @@ async def get_churn_risk(
     return await customer_service.get_churn_risk(customer_id, current_user, db)
 
 
-@router.get("/{customer_id}/portfolio", response_model=PortfolioResponse)
-async def get_portfolio(
-    customer_id: int,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
-):
-    """자산 보유 현황"""
-    return await customer_service.get_portfolio(customer_id, current_user, db)
+
 
 
 @router.post("/{customer_id}/reports/generate", response_model=GenerateReportResponse)
