@@ -12,3 +12,11 @@ from app.models.handover import Handover
 from app.models.in_charge import InCharge
 from app.models.churn_level import ChurnLevel
 from app.models.ml_raw import MlBaserateRaw, MlGoldRaw, MlRealestateRaw
+from app.models.trend import (
+    TrendNews,
+    EconomicIndicatorHistory,
+    EconomicIndicatorPrediction,
+    EconomicIndicatorContribution,
+    TrendLlmReport,
+)
+
