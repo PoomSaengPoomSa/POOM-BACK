@@ -15,7 +15,7 @@ from app.models.in_charge import InCharge
 from app.models.customer import Customer
 
 
-async def get_seasonal_products(
+def get_seasonal_products(
     u_id: Optional[str], current_user, db: Session
 ) -> SeasonalProductListResponse:
     """현재 시즌 주력상품 목록 조회"""
@@ -42,7 +42,7 @@ async def get_seasonal_products(
     )
 
 
-async def get_seasonal_product_detail(
+def get_seasonal_product_detail(
     product_id: int, current_user, db: Session
 ) -> SeasonalProductDetailResponse:
     """특정 주력상품 상세 정보 조회"""
@@ -111,7 +111,7 @@ async def get_seasonal_product_detail(
     )
 
 
-async def get_personal_kpi(u_id: str, db: Session) -> PersonalKpiResponse:
+def get_personal_kpi(u_id: str, db: Session) -> PersonalKpiResponse:
     """로그인한 PB 개인의 당월 KPI 및 전월 대비 증감률 조회"""
     # 1. PB 사용자 검증 (없으면 400 Bad Request)
     pb_user = db.query(PbUser).filter(PbUser.u_id == u_id).first()
@@ -205,7 +205,7 @@ async def get_personal_kpi(u_id: str, db: Session) -> PersonalKpiResponse:
     )
 
 
-async def get_branch_kpi(u_id: str, db: Session) -> BranchKpiResponse:
+def get_branch_kpi(u_id: str, db: Session) -> BranchKpiResponse:
     """로그인한 PB 소속 지점의 당월 KPI 및 전월 대비 증감률 조회"""
     # 1. PB 사용자 검증 (없으면 400 Bad Request)
     pb_user = db.query(PbUser).filter(PbUser.u_id == u_id).first()

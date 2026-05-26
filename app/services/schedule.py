@@ -10,7 +10,7 @@ from app.schemas.schedule import (
 )
 
 
-async def create_schedule(
+def create_schedule(
     request: ScheduleCreate, current_user, db: Session
 ) -> ScheduleResponse:
     """일정 생성"""
@@ -42,14 +42,14 @@ async def create_schedule(
     return new_sched
 
 
-async def get_schedules(
+def get_schedules(
     current_user, db: Session
 ) -> List[ScheduleResponse]:
     """일정 목록 조회"""
     return db.query(Schedule).filter(Schedule.u_id == current_user.id).all()
 
 
-async def get_schedule(
+def get_schedule(
     schedule_id: int, current_user, db: Session
 ) -> ScheduleResponse:
     """일정 상세 조회"""
@@ -62,7 +62,7 @@ async def get_schedule(
     return sched
 
 
-async def update_schedule(
+def update_schedule(
     u_id: str,
     schedule_id: int,
     request: ScheduleUpdate,
@@ -110,7 +110,7 @@ async def update_schedule(
     return sched
 
 
-async def delete_schedule(
+def delete_schedule(
     schedule_id: int, current_user, db: Session
 ) -> MessageResponse:
     """일정 삭제"""

@@ -30,7 +30,7 @@ def check_password(plain: str, stored: str) -> bool:
         return False
 
 
-async def login(request: LoginRequest, db: Session) -> TokenResponse:
+def login(request: LoginRequest, db: Session) -> TokenResponse:
     """유저 로그인 처리"""
     account = db.query(Account).filter(Account.id == request.u_id).first()
     if not account or not check_password(request.password, account.password):
@@ -60,7 +60,7 @@ async def login(request: LoginRequest, db: Session) -> TokenResponse:
     )
 
 
-async def signup(request: SignupRequest, db: Session) -> UserResponse:
+def signup(request: SignupRequest, db: Session) -> UserResponse:
     """유저 회원가입 처리"""
     # 아이디 중복 체크
     existing_account = db.query(Account).filter(Account.id == request.u_id).first()
@@ -139,13 +139,13 @@ async def signup(request: SignupRequest, db: Session) -> UserResponse:
     )
 
 
-async def logout(current_user) -> MessageResponse:
+def logout(current_user) -> MessageResponse:
     """로그아웃 처리"""
     # JWT 방식이므로 클라이언트측 토큰 파기로 처리, 서버측은 성공 메시지 반환
     return MessageResponse(message="성공적으로 로그아웃되었습니다.")
 
 
-async def refresh_token(request: RefreshRequest) -> TokenResponse:
+def refresh_token(request: RefreshRequest) -> TokenResponse:
     """토큰 갱신 처리"""
     payload = verify_token(request.refresh_token)
     if not payload or payload.get("type") != "refresh":
@@ -167,7 +167,7 @@ async def refresh_token(request: RefreshRequest) -> TokenResponse:
     )
 
 
-async def get_me(current_user, db: Session) -> UserResponse:
+def get_me(current_user, db: Session) -> UserResponse:
     """현재 로그인한 유저의 최신 정보 조회"""
     user_name = "PB직원"
     email = ""
