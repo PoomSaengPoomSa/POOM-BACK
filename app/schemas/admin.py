@@ -16,10 +16,13 @@ class UsageResponse(BaseModel):
 
 # 트랜잭션 로그
 class LogEntry(BaseModel):
-    id: int
-    action: str
-    timestamp: datetime
-    user_id: str
+    id: str
+    time: str
+    api: str
+    path: str
+    ms: str
+    status: str
+    user_id: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -30,7 +33,10 @@ class LogListResponse(BaseModel):
 
 # 직원 대시보드
 class EmployeeDashboard(BaseModel):
-    period: Optional[str] = None
+    active_count: int
+    total_count: int
+    access_rate: str
+    avg_session_time: str
 
 
 # 부서별 접속률
@@ -41,25 +47,36 @@ class BranchStats(BaseModel):
 
 # 주간 접속률 추이
 class WeeklyTrend(BaseModel):
-    week: str
-    rate: float
+    name: str
+    value: float
 
 
 # 직원별 기능 사용 현황
 class EmployeeUsage(BaseModel):
-    u_id: str
+    id: str
     name: str
-    feature: str
-    count: int
+    branch: str
+    stat1: str
+    stat2: str
+    stat3: str
+    stat4: str
+    stat5: str
+    total: str
+    status: str
+    statusClass: str
 
 
 # 권한설정 (직원목록)
 class EmployeeListItem(BaseModel):
+    id: str
     u_id: str
     name: str
     branch: str
     position: str
     status: str
+    clients: str
+    pending: bool
+    branchNote: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -70,19 +87,17 @@ class EmployeeListResponse(BaseModel):
 
 # 인수 가능 직원
 class AvailableReceiver(BaseModel):
-    u_id: str
+    id: str
     name: str
-    branch: str
+    clients: str
 
 
 # 인수인계 이력
 class HandoverRecord(BaseModel):
-    h_id: int
-    from_u_id: str
-    to_u_id: str
-    customer_name: str
-    status: str
-    h_date: datetime
+    id: str
+    name: str
+    title: str
+    desc: str
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -93,9 +108,9 @@ class HandoverListResponse(BaseModel):
 
 # 담당 고객 목록
 class CustomerListItem(BaseModel):
-    c_id: int
+    id: str
     name: str
-    grade: Optional[str] = None
+    assets: str
 
 
 # 발령 처리 요청

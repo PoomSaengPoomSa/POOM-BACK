@@ -1,5 +1,9 @@
 from contextlib import asynccontextmanager
 import logging
+import time
+import asyncio
+import httpx
+from datetime import datetime
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,6 +25,44 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+ES_HOST = "http://ap.loclx.io:9201"
+
+async def send_log_to_elasticsearch(log_data: dict):
+    try:
+        async with httpx.AsyncClient(timeout=1.0) as client:
+            await client.post(
+                f"{ES_HOST}/system_logs/_doc",
+                json=log_data
+            )
+    except Exception as e:
+        logger.warning(f"Failed to record access log in remote Elasticsearch: {e}")
+
+@app.middleware("http")
+async def log_request_middleware(request, call_next):
+    start_time = time.time()
+    response = await call_next(request)
+    process_time = time.time() - start_time
+    ms = int(process_time * 1000)
+    
+    path = request.url.path
+    # 'news' 및 'notification' (뉴스 버킷 관련) 경로는 Elasticsearch에 적재하지 않음
+    if "news" in path or "notification" in path:
+        return response
+
+    if path.startswith("/api/v1") or path.startswith("/api"):
+        log_data = {
+            "timestamp": datetime.now().isoformat() + "Z",
+            "api": f"[{request.method}] {path}",
+            "path": path,
+            "method": request.method,
+            "status": response.status_code,
+            "ms": ms,
+            "user_id": "system"
+        }
+        asyncio.create_task(send_log_to_elasticsearch(log_data))
+        
+    return response
 
 # CORS 설정
 origins = [
