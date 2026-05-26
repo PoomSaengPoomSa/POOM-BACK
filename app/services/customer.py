@@ -1,7 +1,7 @@
 from typing import Optional, List
 from datetime import datetime
 from sqlalchemy import extract
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException, status
 from app.models.customer import Customer
 from app.models.in_charge import InCharge
@@ -31,7 +31,7 @@ from app.schemas.customer import (
 
 
 
-async def get_customers(
+def get_customers(
     tab: Optional[str],
     page: int,
     size: int,
@@ -90,7 +90,7 @@ async def get_customers(
     return result
 
 
-async def create_customer(
+def create_customer(
     request: CustomerCreate, current_user, db: Session
 ) -> CustomerProfileResponse:
     """고객 등록"""
@@ -133,7 +133,7 @@ async def create_customer(
     return new_cust
 
 
-async def get_customer(
+def get_customer(
     customer_id: int, current_user, db: Session
 ) -> CustomerDetailResponse:
     """고객 자산 조회"""
@@ -146,7 +146,7 @@ async def get_customer(
     return customer
 
 
-async def update_customer(
+def update_customer(
     customer_id: int,
     request: CustomerUpdate,
     current_user,
@@ -184,7 +184,7 @@ async def update_customer(
     return customer
 
 
-async def delete_customer(
+def delete_customer(
     customer_id: int, current_user, db: Session
 ) -> MessageResponse:
     """고객 삭제"""
@@ -209,7 +209,7 @@ async def delete_customer(
     return MessageResponse(message="고객 정보가 정상적으로 삭제되었습니다.")
 
 
-async def get_main_product_match(
+def get_main_product_match(
     customer_id: int, current_user, db: Session
 ) -> MainProductMatchResponse:
     """주력 상품 매칭"""
@@ -219,6 +219,7 @@ async def get_main_product_match(
     # Query all matching records for the customer, ordered by created_date desc
     matchings = (
         db.query(ProductMatching)
+        .options(joinedload(ProductMatching.product))
         .filter(ProductMatching.c_id == customer_id)
         .order_by(ProductMatching.created_date.desc())
         .all()
@@ -247,7 +248,7 @@ async def get_main_product_match(
     return MainProductMatchResponse(items=items)
 
 
-async def get_customer_feature(
+def get_customer_feature(
     customer_id: int, current_user, db: Session
 ) -> CustomerFeatureResponse:
     """메모 기반 고객 특징"""
@@ -348,7 +349,7 @@ def extract_title(memo_text: str):
     return first_sentence + "."
 
 
-async def get_customer_memos(
+def get_customer_memos(
     customer_id: int,
     cursor: Optional[str],
     size: int,
@@ -359,7 +360,7 @@ async def get_customer_memos(
     from app.models.consultation import ConsultationMemo, ConsultationReport
     from app.schemas.customer import TimelineItem, TimelineContent, ScrollInfo
     
-    query = db.query(ConsultationMemo).filter(ConsultationMemo.c_id == customer_id)
+    query = db.query(ConsultationMemo).options(joinedload(ConsultationMemo.report)).filter(ConsultationMemo.c_id == customer_id)
     
     # Cursor pagination
     if cursor:
@@ -382,7 +383,7 @@ async def get_customer_memos(
         date_str = m.consult_date.strftime("%Y.%m.%d") if m.consult_date else ""
         
         # Fetch associated report to parse content preview
-        report = db.query(ConsultationReport).filter(ConsultationReport.cm_id == m.cm_id).first()
+        report = m.report
         content_dict = {"key_needs": "", "follow_up": "", "next_consult": ""}
         if report and report.content:
             content_dict = parse_report_content(report.content)
@@ -408,7 +409,7 @@ async def get_customer_memos(
     )
 
 
-async def get_customer_memo_detail(
+def get_customer_memo_detail(
     customer_id: int, timeline_id: int, current_user, db: Session
 ) -> MemoDetailResponse:
     """상담 타임라인 상세"""
@@ -444,7 +445,7 @@ async def get_customer_memo_detail(
     )
 
 
-async def get_visit_statistics(
+def get_visit_statistics(
     customer_id: int, current_user, db: Session
 ) -> VisitStatisticsResponse:
     """방문 주기 통계"""
@@ -509,7 +510,7 @@ async def get_visit_statistics(
     )
 
 
-async def get_churn_risk(
+def get_churn_risk(
     customer_id: int, current_user, db: Session
 ) -> ChurnRiskResponse:
     """이탈 위험도 분석"""
@@ -548,7 +549,7 @@ def format_assets_to_str(asset_val):
     return f"{rest_ten_thousand:,}만"
 
 
-async def generate_ai_report(
+def generate_ai_report(
     customer_id: int,
     request,
     current_user,
@@ -613,7 +614,7 @@ async def generate_ai_report(
     )
 
 
-async def save_ai_report(
+def save_ai_report(
     customer_id: int,
     request: SaveReportRequest,
     current_user,
@@ -681,7 +682,7 @@ async def save_ai_report(
     )
 
 
-async def simulator_chat(
+def simulator_chat(
     customer_id: int,
     request: SimulatorChatRequest,
     current_user,
