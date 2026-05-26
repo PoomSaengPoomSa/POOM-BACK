@@ -43,14 +43,25 @@ async def confirm_ai_todo(
     
     todos = db.query(AiTodo).filter(AiTodo.at_id.in_(request.at_ids)).all()
     
-    from datetime import timedelta
+    from datetime import datetime, timedelta
     from fastapi import HTTPException, status
+    
+    # target_date 파싱 시도 (YYYY-MM-DD)
+    parsed_target_date = None
+    if request.target_date:
+        try:
+            parsed_target_date = datetime.strptime(request.target_date, "%Y-%m-%d").date()
+        except ValueError:
+            pass
     
     # 1. 1차 패스로 모든 AI To-Do의 중복 여부를 정밀 검증
     for t in todos:
         if not t.is_checked:
             start_dt = t.execution_date
-            end_dt = t.execution_date + timedelta(hours=1)
+            if parsed_target_date:
+                start_dt = datetime.combine(parsed_target_date, t.execution_date.time())
+                
+            end_dt = start_dt + timedelta(hours=1)
             
             # DB 상에서 겹치는 일정이 있는지 검증 (날은 물론 시간대까지 겹치면 안 됨)
             overlap_exists = db.query(Schedule).filter(
@@ -70,6 +81,10 @@ async def confirm_ai_todo(
         if not t.is_checked:
             t.is_checked = True
             
+            start_dt = t.execution_date
+            if parsed_target_date:
+                start_dt = datetime.combine(parsed_target_date, t.execution_date.time())
+                
             category_mapping = {
                 'KPI 기반': '공지',
                 '상담 일정 제안': '상담',
@@ -82,8 +97,8 @@ async def confirm_ai_todo(
                 title=t.title,
                 memo=t.memo or "AI 추천으로 등록된 일정",
                 category=sched_cat,
-                execution_date=t.execution_date,
-                end_datetime=t.execution_date + timedelta(hours=1),
+                execution_date=start_dt,
+                end_datetime=start_dt + timedelta(hours=1),
                 u_id=t.u_id,
                 c_id=t.c_id,
                 at_id=t.at_id

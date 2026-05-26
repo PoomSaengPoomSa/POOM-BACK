@@ -10,6 +10,7 @@ from app.schemas.trend import (
     NewsBulkRequest,
     NewsBulkResponse,
     NewsBulkDeleteRequest,
+    NewsBulkDeleteResponse,
     IndicatorLatestResponse,
     IndicatorHistoryResponse,
     IndicatorPredictionResponse,
@@ -42,8 +43,8 @@ async def get_news_list(
     q: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
-    from_date: Optional[str] = Query(None),
-    to_date: Optional[str] = Query(None),
+    from_date: Optional[str] = Query(None, alias="from"),
+    to_date: Optional[str] = Query(None, alias="to"),
     sort: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
@@ -56,7 +57,7 @@ async def get_news_list(
 
 @router.get("/news/{news_id}", response_model=NewsDetailResponse)
 async def get_news_detail(
-    news_id: int,
+    news_id: str,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -74,7 +75,7 @@ async def bulk_create_news(
     return await trend_service.bulk_create_news(request, current_user, db)
 
 
-@router.delete("/news/bulk", response_model=MessageResponse)
+@router.delete("/news/bulk", response_model=NewsBulkDeleteResponse)
 async def bulk_delete_news(
     request: NewsBulkDeleteRequest,
     db: Session = Depends(get_db),
@@ -97,8 +98,8 @@ async def get_indicator_latest(
 @router.get("/indicators/{type}/history", response_model=IndicatorHistoryResponse)
 async def get_indicator_history(
     type: str,
-    from_date: Optional[str] = Query(None),
-    to_date: Optional[str] = Query(None),
+    from_date: Optional[str] = Query(None, alias="from"),
+    to_date: Optional[str] = Query(None, alias="to"),
     granularity: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
@@ -114,7 +115,7 @@ async def get_indicator_history(
 )
 async def get_indicator_prediction(
     type: str,
-    horizon: Optional[str] = Query(None),
+    horizon: Optional[int] = Query(7),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -159,7 +160,7 @@ async def create_indicator_report(
 )
 async def get_report_status(
     type: str,
-    report_id: int,
+    report_id: str,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
