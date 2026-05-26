@@ -1,5 +1,8 @@
 from typing import Optional, List
 from sqlalchemy.orm import Session
+import httpx
+import logging
+from datetime import datetime, timedelta, date
 from app.models.trend import (
     TrendNews,
     EconomicIndicatorHistory,
@@ -28,32 +31,103 @@ from app.schemas.trend import (
     MessageResponse,
 )
 
+logger = logging.getLogger(__name__)
+ES_HOST = "http://ap.loclx.io:9201"
+
 
 async def get_trend_dashboard(current_user, db: Session) -> TrendDashboardResponse:
-    """트렌드 대시보드 조회"""
-    # 1. 기사 조회 (카테고리별 최신 3건)
-    economy_news = db.query(TrendNews).filter(TrendNews.category == "economy").order_by(TrendNews.published_at.desc()).limit(3).all()
-    politics_news = db.query(TrendNews).filter(TrendNews.category == "politics").order_by(TrendNews.published_at.desc()).limit(3).all()
-    it_news = db.query(TrendNews).filter(TrendNews.category == "it").order_by(TrendNews.published_at.desc()).limit(3).all()
+    """트렌드 대시보드 조회 (Elasticsearch 우선조회 후 MySQL 폴백)"""
+    economy_news = []
+    politics_news = []
+    it_news = []
+    
+    # 1. Elasticsearch에서 기사 조회 시도 (카테고리별 최신 3건)
+    try:
+        async with httpx.AsyncClient(timeout=1.0) as client:
+            resp_econ = await client.post(
+                f"{ES_HOST}/sbs_news/_search",
+                json={
+                    "query": {"term": {"category": "경제"}},
+                    "sort": [{"published_at": {"order": "desc"}}],
+                    "size": 3
+                }
+            )
+            resp_pol = await client.post(
+                f"{ES_HOST}/sbs_news/_search",
+                json={
+                    "query": {"term": {"category": "정치"}},
+                    "sort": [{"published_at": {"order": "desc"}}],
+                    "size": 3
+                }
+            )
+            resp_mug = await client.post(
+                f"{ES_HOST}/sbs_news/_search",
+                json={
+                    "query": {"term": {"category": "머그"}},
+                    "sort": [{"published_at": {"order": "desc"}}],
+                    "size": 3
+                }
+            )
+            
+            if resp_econ.status_code == 200:
+                economy_news = [
+                    {
+                        "id": hit["_id"],
+                        "title": hit["_source"].get("title", ""),
+                        "publishedAt": (hit["_source"].get("published_at", "")[:10] if hit["_source"].get("published_at", "") else "")
+                    }
+                    for hit in resp_econ.json().get("hits", {}).get("hits", [])
+                ]
+            if resp_pol.status_code == 200:
+                politics_news = [
+                    {
+                        "id": hit["_id"],
+                        "title": hit["_source"].get("title", ""),
+                        "publishedAt": (hit["_source"].get("published_at", "")[:10] if hit["_source"].get("published_at", "") else "")
+                    }
+                    for hit in resp_pol.json().get("hits", {}).get("hits", [])
+                ]
+            if resp_mug.status_code == 200:
+                it_news = [
+                    {
+                        "id": hit["_id"],
+                        "title": hit["_source"].get("title", ""),
+                        "publishedAt": (hit["_source"].get("published_at", "")[:10] if hit["_source"].get("published_at", "") else "")
+                    }
+                    for hit in resp_mug.json().get("hits", {}).get("hits", [])
+                ]
+    except Exception as e:
+        logger.warning(f"Failed to fetch dashboard news from Elasticsearch: {e}. Falling back to MySQL.")
 
-    # DashboardNewsItem 규격에 맞춰 포맷팅
-    def to_dashboard_item(item):
-        return {
-            "id": f"news_{item.news_id:03d}",
-            "title": item.title,
-            "publishedAt": item.published_at.strftime("%Y-%m-%d")
-        }
+    # 2. MySQL 폴백 (결과가 없을 경우)
+    if not economy_news:
+        db_econ = db.query(TrendNews).filter(TrendNews.category == "economy").order_by(TrendNews.published_at.desc()).limit(3).all()
+        economy_news = [
+            {"id": f"news_{item.news_id:03d}", "title": item.title, "publishedAt": item.published_at.strftime("%Y-%m-%d")}
+            for item in db_econ
+        ]
+    if not politics_news:
+        db_pol = db.query(TrendNews).filter(TrendNews.category == "politics").order_by(TrendNews.published_at.desc()).limit(3).all()
+        politics_news = [
+            {"id": f"news_{item.news_id:03d}", "title": item.title, "publishedAt": item.published_at.strftime("%Y-%m-%d")}
+            for item in db_pol
+        ]
+    if not it_news:
+        db_it = db.query(TrendNews).filter(TrendNews.category == "it").order_by(TrendNews.published_at.desc()).limit(3).all()
+        it_news = [
+            {"id": f"news_{item.news_id:03d}", "title": item.title, "publishedAt": item.published_at.strftime("%Y-%m-%d")}
+            for item in db_it
+        ]
 
     news_data = {
-        "economy": [to_dashboard_item(n) for n in economy_news],
-        "politics": [to_dashboard_item(n) for n in politics_news],
-        "itScience": [to_dashboard_item(n) for n in it_news],
-        "it": [to_dashboard_item(n) for n in it_news],  # 프론트 하위 호환을 위해 추가 제공
+        "economy": economy_news,
+        "politics": politics_news,
+        "itScience": it_news,
+        "it": it_news,
     }
 
     # 2. 금값 및 부동산 지표 조회
     def get_latest_stats(indicator_type: str, default_today: float, default_yesterday: float, default_tomorrow: float):
-        # 최신 이력 2건 조회
         history = db.query(EconomicIndicatorHistory).filter(EconomicIndicatorHistory.type == indicator_type).order_by(EconomicIndicatorHistory.recorded_at.desc()).limit(2).all()
         
         if len(history) >= 2:
@@ -66,11 +140,9 @@ async def get_trend_dashboard(current_user, db: Session) -> TrendDashboardRespon
             today_val = default_today
             yesterday_val = default_yesterday
 
-        # 내일 예측값 조회
         pred = db.query(EconomicIndicatorPrediction).filter(EconomicIndicatorPrediction.type == indicator_type).order_by(EconomicIndicatorPrediction.predicted_date.asc()).first()
         tomorrow_val = float(pred.predicted_value) if pred else default_tomorrow
 
-        # 등락률 및 방향 계산
         if yesterday_val != 0:
             change_rate = round(((today_val - yesterday_val) / yesterday_val) * 100, 1)
         else:
@@ -102,14 +174,12 @@ async def get_trend_dashboard(current_user, db: Session) -> TrendDashboardRespon
     
     if br_history:
         this_month_val = float(br_history[0].value)
-        # 이번 달 금리와 다른 가장 최근 금리를 지난 달 금리로 취급
         different_vals = [float(h.value) for h in br_history if float(h.value) != this_month_val]
         if different_vals:
             last_month_val = different_vals[0]
         else:
             last_month_val = this_month_val
 
-    # 다음 달 금리 예측 조회
     br_pred = db.query(EconomicIndicatorPrediction).filter(EconomicIndicatorPrediction.type == "base_rate").order_by(EconomicIndicatorPrediction.predicted_date.asc()).first()
     next_month_val = float(br_pred.predicted_value) if br_pred else 2.0
 
@@ -150,12 +220,116 @@ async def get_news_list(
     current_user,
     db: Session,
 ) -> NewsListResponse:
-    """뉴스 목록 조회"""
-    import datetime
-    
+    """뉴스 목록 조회 (Elasticsearch 우선조회 후 MySQL 폴백)"""
+    # 1. Elasticsearch에서 조회 시도
+    try:
+        es_query = {"bool": {"must": [], "filter": []}}
+        
+        if q:
+            es_query["bool"]["must"].append({
+                "multi_match": {
+                    "query": q,
+                    "fields": ["title", "content", "summary"]
+                }
+            })
+        else:
+            es_query["bool"]["must"].append({"match_all": {}})
+            
+        if category and category != "전체":
+            cat_map = {
+                "경제": "경제",
+                "정치": "정치",
+                "IT/과학": "머그",
+                "economy": "경제",
+                "politics": "정치",
+                "it": "머그",
+                "itScience": "머그"
+            }
+            mapped_cat = cat_map.get(category, category)
+            es_query["bool"]["filter"].append({
+                "term": {"category": mapped_cat}
+            })
+            
+        date_filter = {}
+        if from_date:
+            date_filter["gte"] = from_date
+        if to_date:
+            date_filter["lte"] = to_date
+        if date_filter:
+            es_query["bool"]["filter"].append({
+                "range": {"published_at": date_filter}
+            })
+            
+        es_sort = []
+        if sort == "oldest":
+            es_sort.append({"published_at": {"order": "asc"}})
+        else:
+            es_sort.append({"published_at": {"order": "desc"}})
+            
+        es_payload = {
+            "query": es_query,
+            "sort": es_sort,
+            "from": (page - 1) * size,
+            "size": size
+        }
+        
+        async with httpx.AsyncClient(timeout=1.0) as client:
+            response = await client.post(
+                f"{ES_HOST}/sbs_news/_search",
+                json=es_payload
+            )
+            
+            if response.status_code == 200:
+                res_data = response.json()
+                hits_info = res_data.get("hits", {})
+                hits_list = hits_info.get("hits", [])
+                
+                total_info = hits_info.get("total", 0)
+                if isinstance(total_info, dict):
+                    total_count = total_info.get("value", 0)
+                else:
+                    total_count = int(total_info)
+                    
+                if total_count > 0:
+                    search_items = []
+                    for hit in hits_list:
+                        source = hit.get("_source", {})
+                        doc_id = hit.get("_id", "")
+                        
+                        cat = source.get("category", "일반")
+                        pub_at_str = source.get("published_at", "")
+                        if pub_at_str:
+                            if "T" in pub_at_str:
+                                pub_at_str = pub_at_str.split("T")[0]
+                            else:
+                                pub_at_str = pub_at_str[:10]
+                        else:
+                            pub_at_str = date.today().strftime("%Y-%m-%d")
+                            
+                        search_items.append({
+                            "id": doc_id,
+                            "title": source.get("title", ""),
+                            "category": cat,
+                            "publishedAt": pub_at_str,
+                            "isBookmarked": False
+                        })
+                        
+                    total_pages = max(1, (total_count + size - 1) // size)
+                    return NewsListResponse(
+                        items=search_items,
+                        pagination={
+                            "page": page,
+                            "size": size,
+                            "totalCount": total_count,
+                            "totalPages": total_pages
+                        }
+                    )
+    except Exception as e:
+        logger.warning(f"Failed to fetch news list from Elasticsearch: {e}. Falling back to MySQL.")
+
+    # 2. MySQL 폴백
     query = db.query(TrendNews)
 
-    # 1. 카테고리 필터링 ('전체' 또는 None 이면 필터 무시)
     if category and category != "전체":
         cat_map = {
             "경제": "economy",
@@ -169,41 +343,36 @@ async def get_news_list(
         mapped_cat = cat_map.get(category, category)
         query = query.filter(TrendNews.category == mapped_cat)
 
-    # 2. 키워드 검색 (제목 및 본문 전문 검색)
     if q:
         query = query.filter(
             (TrendNews.title.like(f"%{q}%")) | (TrendNews.body.like(f"%{q}%"))
         )
 
-    # 3. 날짜 기간 검색 (from_date, to_date)
     if from_date:
         try:
-            start_date = datetime.datetime.strptime(from_date, "%Y-%m-%d")
+            start_date = datetime.strptime(from_date, "%Y-%m-%d")
             query = query.filter(TrendNews.published_at >= start_date)
         except ValueError:
             pass
             
     if to_date:
         try:
-            end_date = datetime.datetime.strptime(to_date, "%Y-%m-%d") + datetime.timedelta(days=1)
+            end_date = datetime.strptime(to_date, "%Y-%m-%d") + timedelta(days=1)
             query = query.filter(TrendNews.published_at < end_date)
         except ValueError:
             pass
 
-    # 4. 정렬 방식 적용 (latest: 최신순, oldest: 과거순)
     if sort == "oldest":
         query = query.order_by(TrendNews.published_at.asc())
-    else:  # latest 혹은 relevance (기본 최신순 정렬)
+    else:
         query = query.order_by(TrendNews.published_at.desc())
 
-    # 5. 페이징 및 페이지 개수 산출
     total_count = query.count()
     total_pages = max(1, (total_count + size - 1) // size)
     
     offset = (page - 1) * size
     items = query.offset(offset).limit(size).all()
 
-    # NewsSearchItem 규격으로 변환
     search_items = []
     category_display_map = { "economy": "경제", "politics": "정치", "it": "IT/과학" }
     
@@ -216,53 +385,81 @@ async def get_news_list(
             "isBookmarked": False
         })
 
-    return {
-        "items": search_items,
-        "pagination": {
+    return NewsListResponse(
+        items=search_items,
+        pagination={
             "page": page,
             "size": size,
             "totalCount": total_count,
             "totalPages": total_pages
         }
-    }
+    )
 
 
 async def get_news_detail(
     news_id: str, current_user, db: Session
 ) -> NewsDetailResponse:
-    """뉴스 상세 조회"""
+    """뉴스 상세 조회 (Elasticsearch 우선조회 후 MySQL 폴백)"""
     from fastapi import HTTPException
     
-    # news_001 포맷에서 숫자 ID 파싱
+    # 1. Elasticsearch에서 조회 시도
+    try:
+        async with httpx.AsyncClient(timeout=1.0) as client:
+            response = await client.get(f"{ES_HOST}/sbs_news/_doc/{news_id}")
+            if response.status_code == 200:
+                hit = response.json()
+                source = hit.get("_source", {})
+                
+                pub_at = source.get("published_at", "")
+                if pub_at and not pub_at.endswith("Z") and "+" not in pub_at:
+                    pub_at = pub_at + "Z"
+                    
+                tags = source.get("tags", [])
+                if isinstance(tags, str):
+                    tags = tags.split(",") if tags else []
+                    
+                return NewsDetailResponse(
+                    newsId=news_id,
+                    title=source.get("title", ""),
+                    body=source.get("content", source.get("summary", "")),
+                    category=source.get("category", "일반"),
+                    source=source.get("author", "SBS 뉴스"),
+                    originUrl=source.get("url", ""),
+                    tags=tags,
+                    publishedAt=pub_at or datetime.utcnow().isoformat() + "Z",
+                    createdAt=source.get("indexed_at", datetime.utcnow().isoformat() + "Z")
+                )
+    except Exception as e:
+        logger.warning(f"Failed to fetch news detail from Elasticsearch: {e}. Falling back to MySQL.")
+        
+    # 2. MySQL 폴백
     try:
         clean_id = int(news_id.replace("news_", ""))
     except ValueError:
-        raise HTTPException(status_code=400, detail="유효하지 않은 뉴스 ID 포맷입니다.")
+        raise HTTPException(status_code=404, detail="요청하신 뉴스를 찾을 수 없습니다.")
         
     news_item = db.query(TrendNews).filter(TrendNews.news_id == clean_id).first()
     if not news_item:
         raise HTTPException(status_code=404, detail="요청하신 뉴스를 찾을 수 없습니다.")
 
     tags_list = news_item.tags.split(",") if news_item.tags else []
-    
     category_map = { "economy": "경제", "politics": "정치", "it": "IT/과학" }
     display_category = category_map.get(news_item.category, news_item.category)
 
-    # ISO 8601 포맷 타임스탬프 (예: 2025-05-20T09:00:00Z)
     published_str = news_item.published_at.strftime("%Y-%m-%dT%H:%M:%SZ")
     created_str = news_item.published_at.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    return {
-        "newsId": news_id,
-        "title": news_item.title,
-        "body": news_item.body,
-        "category": display_category,
-        "source": news_item.source,
-        "originUrl": news_item.origin_url,
-        "tags": tags_list,
-        "publishedAt": published_str,
-        "createdAt": created_str
-    }
+    return NewsDetailResponse(
+        newsId=news_id,
+        title=news_item.title,
+        body=news_item.body,
+        category=display_category,
+        source=news_item.source,
+        originUrl=news_item.origin_url,
+        tags=tags_list,
+        publishedAt=published_str,
+        createdAt=created_str
+    )
 
 
 async def bulk_create_news(
