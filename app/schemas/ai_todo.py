@@ -23,6 +23,8 @@ class AiTodoListResponse(BaseModel):
 class AiTodoConfirmRequest(BaseModel):
     u_id: str
     at_ids: List[int]
+    target_date: Optional[str] = None
+
 
 
 class AiTodoConfirmResponse(BaseModel):
