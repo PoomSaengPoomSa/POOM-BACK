@@ -210,7 +210,7 @@ def get_main_product_match(
     customer_id: int, current_user, db: Session
 ) -> MainProductMatchResponse:
     """주력 상품 매칭"""
-    from app.models.product import ProductMatching
+    from app.models.product import ProductMatching, CustomerProduct
     from app.schemas.customer import ProductMatchItem
 
     # Query all matching records for the customer, ordered by created_date desc
@@ -228,10 +228,19 @@ def get_main_product_match(
         if m.pd_id not in unique_matchings:
             unique_matchings[m.pd_id] = m
 
+    # Query owned product ids for this customer
+    owned_product_ids = {
+        cp.pd_id
+        for cp in db.query(CustomerProduct.pd_id)
+        .filter(CustomerProduct.c_id == customer_id)
+        .all()
+    }
+
     items = []
     # Map the unique matchings to ProductMatchItem DTOs
     for m in unique_matchings.values():
         if m.product:
+            is_owned = m.pd_id in owned_product_ids
             items.append(
                 ProductMatchItem(
                     product_name=m.product.name,
@@ -239,6 +248,7 @@ def get_main_product_match(
                     is_suitable=m.is_suitable,
                     reason=m.reason,
                     product_type=m.product.type,
+                    is_owned=is_owned,
                 )
             )
 
