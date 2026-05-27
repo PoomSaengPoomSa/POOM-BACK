@@ -69,6 +69,7 @@ class ProductMatchItem(BaseModel):
     is_suitable: bool
     reason: str
     product_type: str
+    is_owned: Optional[bool] = False
 
 
 class MainProductMatchResponse(BaseModel):
