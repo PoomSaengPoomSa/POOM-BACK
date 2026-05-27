@@ -74,7 +74,7 @@ async def log_request_middleware(request, call_next):
             "user_id": "system"
         }
         # 터미널에 로그 출력
-        print(f"📝 [API LOG] [{request.method}] {path} - Status: {response.status_code} ({ms}ms)")
+        print(f"[API LOG] [{request.method}] {path} - Status: {response.status_code} ({ms}ms)")
         
         # Run blocking DNS/HTTP log call in a background thread to prevent freezing the FastAPI event loop
         loop = asyncio.get_running_loop()

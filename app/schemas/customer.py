@@ -122,9 +122,10 @@ class PortfolioResponse(BaseModel):
 
 # 상담 타임라인
 class TimelineContent(BaseModel):
-    key_needs: Optional[str] = None
+    main_content: Optional[str] = None
+    special_remarks: Optional[str] = None
     follow_up: Optional[str] = None
-    next_consult: Optional[str] = None
+    summary: Optional[str] = None
 
 class TimelineItem(BaseModel):
     timelineId: int
@@ -174,12 +175,12 @@ class GenerateReportRequest(BaseModel):
 
 
 class GenerateReportData(BaseModel):
+    cm_id: int
     customer_name: str
-    grade: str
-    total_assets: str
-    key_needs: str
+    main_content: str
+    special_remarks: str
     follow_up: str
-    next_consult: str
+    summary: Optional[str] = None
 
 
 class GenerateReportResponse(BaseModel):
@@ -189,14 +190,16 @@ class GenerateReportResponse(BaseModel):
 
 
 class SaveReportContent(BaseModel):
-    key_needs: str
+    main_content: str
+    special_remarks: str
     follow_up: str
-    next_consult: str
+    summary: Optional[str] = None
 
 
 class SaveReportRequest(BaseModel):
-    memo: str
-    consult_date: str
+    cm_id: int
+    memo: Optional[str] = None
+    consult_date: Optional[str] = None
     content: SaveReportContent
 
 
