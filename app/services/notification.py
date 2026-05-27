@@ -24,7 +24,7 @@ def format_date(dt: datetime.datetime) -> str:
     return f"{dt.day} {months[dt.month - 1]}, {dt.year}"
 
 
-async def get_notifications(
+def get_notifications(
     current_user, tab: str, db: Session
 ) -> List[NotificationResponse]:
     """유저 ID(u_id)에 따른 알림 리스트 조회 및 포맷팅"""
@@ -64,7 +64,7 @@ async def get_notifications(
     return response_list
 
 
-async def get_today_count(current_user, db: Session) -> int:
+def get_today_count(current_user, db: Session) -> int:
     """오늘 날짜의 알림 개수 조회"""
     today_date = datetime.date.today()
     

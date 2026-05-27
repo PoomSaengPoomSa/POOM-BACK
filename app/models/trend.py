@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, Numeric, Date
+from sqlalchemy import Column, Integer, String, DateTime, Text, Numeric, Date, Index
 from app.database import Base
 import datetime
 
@@ -15,6 +15,12 @@ class TrendNews(Base):
     origin_url = Column(String(255), nullable=True)
     tags = Column(String(255), nullable=True)  # 쉼표 구분 태그 목록
 
+    __table_args__ = (
+        Index('idx_tn_cat_pub', 'category', published_at.desc()),
+        Index('idx_tn_pub', published_at.desc()),
+        Index('idx_tn_url', 'origin_url'),
+    )
+
 class EconomicIndicatorHistory(Base):
     """경제지표 과거 이력 테이블 모델"""
     __tablename__ = "economic_indicator_history"
@@ -24,6 +30,10 @@ class EconomicIndicatorHistory(Base):
     value = Column(Numeric(15, 4), nullable=False)
     recorded_at = Column(DateTime, nullable=False)
     source = Column(String(100), nullable=True)
+
+    __table_args__ = (
+        Index('idx_eih_type_recorded', 'type', recorded_at.desc()),
+    )
 
 class EconomicIndicatorPrediction(Base):
     """경제지표 ML 예측 테이블 모델"""
@@ -35,6 +45,10 @@ class EconomicIndicatorPrediction(Base):
     confidence_lower = Column(Numeric(15, 4), nullable=True)
     confidence_upper = Column(Numeric(15, 4), nullable=True)
     predicted_date = Column(Date, nullable=False)
+
+    __table_args__ = (
+        Index('idx_eip_type_date', 'type', predicted_date.asc()),
+    )
 
 class EconomicIndicatorContribution(Base):
     """지표 예측 기여도 테이블 모델"""

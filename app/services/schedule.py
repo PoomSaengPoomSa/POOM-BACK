@@ -1,4 +1,4 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException, status
 from typing import List
 from app.models.schedule import Schedule
@@ -10,7 +10,7 @@ from app.schemas.schedule import (
 )
 
 
-async def create_schedule(
+def create_schedule(
     request: ScheduleCreate, current_user, db: Session
 ) -> ScheduleResponse:
     """일정 생성"""
@@ -26,7 +26,7 @@ async def create_schedule(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="선택하신 시간에 이미 다른 일정이 존재합니다. 중복 등록할 수 없습니다.",
         )
-
+ 
     new_sched = Schedule(
         title=request.content,
         memo=request.memo,
@@ -42,14 +42,24 @@ async def create_schedule(
     return new_sched
 
 
-async def get_schedules(
+def get_schedules(
     current_user, db: Session
 ) -> List[ScheduleResponse]:
     """일정 목록 조회"""
-    return db.query(Schedule).filter(Schedule.u_id == current_user.id).all()
+    schedules = (
+        db.query(Schedule)
+        .options(joinedload(Schedule.customer))
+        .filter(Schedule.u_id == current_user.id)
+        .all()
+    )
+    
+    for s in schedules:
+        s.customer_name = s.customer.name if s.customer else ""
+        
+    return schedules
 
 
-async def get_schedule(
+def get_schedule(
     schedule_id: int, current_user, db: Session
 ) -> ScheduleResponse:
     """일정 상세 조회"""
@@ -62,7 +72,7 @@ async def get_schedule(
     return sched
 
 
-async def update_schedule(
+def update_schedule(
     u_id: str,
     schedule_id: int,
     request: ScheduleUpdate,
@@ -110,7 +120,7 @@ async def update_schedule(
     return sched
 
 
-async def delete_schedule(
+def delete_schedule(
     schedule_id: int, current_user, db: Session
 ) -> MessageResponse:
     """일정 삭제"""

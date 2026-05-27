@@ -33,6 +33,7 @@ class ScheduleResponse(BaseModel):
     u_id: str
     c_id: Optional[int] = None
     at_id: Optional[int] = None
+    customer_name: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
 

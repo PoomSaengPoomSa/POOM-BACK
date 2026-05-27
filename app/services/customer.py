@@ -1,7 +1,7 @@
 from typing import Optional, List
 from datetime import datetime
 from sqlalchemy import extract
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException, status
 from app.models.customer import Customer
 from app.models.in_charge import InCharge
@@ -31,7 +31,7 @@ from app.schemas.customer import (
 
 
 
-async def get_customers(
+def get_customers(
     tab: Optional[str],
     page: int,
     size: int,
@@ -62,11 +62,8 @@ async def get_customers(
             ).all() if s.c_id is not None
         ]
         
-        # 데모용 짝수 고객이면서 신규 고객이 아니거나, 오늘 실제 일정이 있는 고객 필터링
-        query = query.filter(
-            ((Customer.c_id % 2 == 0) & (Customer.llm_insight.is_(None) | (Customer.llm_insight != "신규 등록 고객입니다."))) |
-            Customer.c_id.in_(today_scheduled_c_ids)
-        )
+        # 실제 오늘 일정이 존재하는 고객 정보만 정확하게 조회하도록 필터링
+        query = query.filter(Customer.c_id.in_(today_scheduled_c_ids))
         
     # 페이징 적용
     offset = (page - 1) * size
@@ -90,7 +87,7 @@ async def get_customers(
     return result
 
 
-async def create_customer(
+def create_customer(
     request: CustomerCreate, current_user, db: Session
 ) -> CustomerProfileResponse:
     """고객 등록"""
@@ -133,7 +130,7 @@ async def create_customer(
     return new_cust
 
 
-async def get_customer(
+def get_customer(
     customer_id: int, current_user, db: Session
 ) -> CustomerDetailResponse:
     """고객 자산 조회"""
@@ -146,7 +143,7 @@ async def get_customer(
     return customer
 
 
-async def update_customer(
+def update_customer(
     customer_id: int,
     request: CustomerUpdate,
     current_user,
@@ -184,7 +181,7 @@ async def update_customer(
     return customer
 
 
-async def delete_customer(
+def delete_customer(
     customer_id: int, current_user, db: Session
 ) -> MessageResponse:
     """고객 삭제"""
@@ -209,7 +206,7 @@ async def delete_customer(
     return MessageResponse(message="고객 정보가 정상적으로 삭제되었습니다.")
 
 
-async def get_main_product_match(
+def get_main_product_match(
     customer_id: int, current_user, db: Session
 ) -> MainProductMatchResponse:
     """주력 상품 매칭"""
@@ -219,6 +216,7 @@ async def get_main_product_match(
     # Query all matching records for the customer, ordered by created_date desc
     matchings = (
         db.query(ProductMatching)
+        .options(joinedload(ProductMatching.product))
         .filter(ProductMatching.c_id == customer_id)
         .order_by(ProductMatching.created_date.desc())
         .all()
@@ -247,7 +245,7 @@ async def get_main_product_match(
     return MainProductMatchResponse(items=items)
 
 
-async def get_customer_feature(
+def get_customer_feature(
     customer_id: int, current_user, db: Session
 ) -> CustomerFeatureResponse:
     """메모 기반 고객 특징"""
@@ -348,7 +346,7 @@ def extract_title(memo_text: str):
     return first_sentence + "."
 
 
-async def get_customer_memos(
+def get_customer_memos(
     customer_id: int,
     cursor: Optional[str],
     size: int,
@@ -359,7 +357,7 @@ async def get_customer_memos(
     from app.models.consultation import ConsultationMemo, ConsultationReport
     from app.schemas.customer import TimelineItem, TimelineContent, ScrollInfo
     
-    query = db.query(ConsultationMemo).filter(ConsultationMemo.c_id == customer_id)
+    query = db.query(ConsultationMemo).options(joinedload(ConsultationMemo.report)).filter(ConsultationMemo.c_id == customer_id)
     
     # Cursor pagination
     if cursor:
@@ -382,7 +380,7 @@ async def get_customer_memos(
         date_str = m.consult_date.strftime("%Y.%m.%d") if m.consult_date else ""
         
         # Fetch associated report to parse content preview
-        report = db.query(ConsultationReport).filter(ConsultationReport.cm_id == m.cm_id).first()
+        report = m.report
         content_dict = {"key_needs": "", "follow_up": "", "next_consult": ""}
         if report and report.content:
             content_dict = parse_report_content(report.content)
@@ -408,7 +406,7 @@ async def get_customer_memos(
     )
 
 
-async def get_customer_memo_detail(
+def get_customer_memo_detail(
     customer_id: int, timeline_id: int, current_user, db: Session
 ) -> MemoDetailResponse:
     """상담 타임라인 상세"""
@@ -444,7 +442,7 @@ async def get_customer_memo_detail(
     )
 
 
-async def get_visit_statistics(
+def get_visit_statistics(
     customer_id: int, current_user, db: Session
 ) -> VisitStatisticsResponse:
     """방문 주기 통계"""
@@ -484,14 +482,8 @@ async def get_visit_statistics(
 
     monthly_visits = []
     for y, m in months_to_query:
-        count = db.query(Schedule).filter(
-            Schedule.u_id == current_user.id,
-            Schedule.c_id == customer_id,
-            Schedule.category == "상담",
-            Schedule.execution_date <= now,
-            extract('year', Schedule.execution_date) == y,
-            extract('month', Schedule.execution_date) == m
-        ).count()
+        # Perform counting in Python memory instead of executing separate SQL count queries in a loop
+        count = sum(1 for v in visits if v.execution_date and v.execution_date.year == y and v.execution_date.month == m)
         
         monthly_visits.append(
             VisitMonthCount(
@@ -509,7 +501,7 @@ async def get_visit_statistics(
     )
 
 
-async def get_churn_risk(
+def get_churn_risk(
     customer_id: int, current_user, db: Session
 ) -> ChurnRiskResponse:
     """이탈 위험도 분석"""
@@ -548,7 +540,7 @@ def format_assets_to_str(asset_val):
     return f"{rest_ten_thousand:,}만"
 
 
-async def generate_ai_report(
+def generate_ai_report(
     customer_id: int,
     request,
     current_user,
@@ -613,7 +605,7 @@ async def generate_ai_report(
     )
 
 
-async def save_ai_report(
+def save_ai_report(
     customer_id: int,
     request: SaveReportRequest,
     current_user,
@@ -681,7 +673,7 @@ async def save_ai_report(
     )
 
 
-async def simulator_chat(
+def simulator_chat(
     customer_id: int,
     request: SimulatorChatRequest,
     current_user,

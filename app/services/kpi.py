@@ -15,7 +15,7 @@ from app.models.in_charge import InCharge
 from app.models.customer import Customer
 
 
-async def get_seasonal_products(
+def get_seasonal_products(
     u_id: Optional[str], current_user, db: Session
 ) -> SeasonalProductListResponse:
     """현재 시즌 주력상품 목록 조회"""
@@ -42,7 +42,7 @@ async def get_seasonal_products(
     )
 
 
-async def get_seasonal_product_detail(
+def get_seasonal_product_detail(
     product_id: int, current_user, db: Session
 ) -> SeasonalProductDetailResponse:
     """특정 주력상품 상세 정보 조회"""
@@ -111,7 +111,7 @@ async def get_seasonal_product_detail(
     )
 
 
-async def get_personal_kpi(u_id: str, db: Session) -> PersonalKpiResponse:
+def get_personal_kpi(u_id: str, db: Session) -> PersonalKpiResponse:
     """로그인한 PB 개인의 당월 KPI 및 전월 대비 증감률 조회"""
     # 1. PB 사용자 검증 (없으면 400 Bad Request)
     pb_user = db.query(PbUser).filter(PbUser.u_id == u_id).first()
@@ -205,7 +205,7 @@ async def get_personal_kpi(u_id: str, db: Session) -> PersonalKpiResponse:
     )
 
 
-async def get_branch_kpi(u_id: str, db: Session) -> BranchKpiResponse:
+def get_branch_kpi(u_id: str, db: Session) -> BranchKpiResponse:
     """로그인한 PB 소속 지점의 당월 KPI 및 전월 대비 증감률 조회"""
     # 1. PB 사용자 검증 (없으면 400 Bad Request)
     pb_user = db.query(PbUser).filter(PbUser.u_id == u_id).first()
@@ -306,4 +306,30 @@ async def get_branch_kpi(u_id: str, db: Session) -> BranchKpiResponse:
         non_interest_rate=non_interest_rate,
         non_interest_delta=non_interest_delta,
     )
+
+
+def get_dashboard_summary(u_id: str, current_user, db: Session):
+    """지표, 일정, AI To-Do 통합 대시보드 요약 정보 조회"""
+    from app.services.schedule import get_schedules
+    from app.services.ai_todo import get_ai_todos
+    
+    personal = get_personal_kpi(u_id, db)
+    branch = get_branch_kpi(u_id, db)
+    
+    try:
+        products = get_seasonal_products(u_id, current_user, db)
+    except HTTPException:
+        products = {"total_count": 0, "products": []}
+        
+    schedules = get_schedules(current_user, db)
+    ai_todo_res = get_ai_todos(u_id, current_user, db)
+    
+    return {
+        "personal_kpi": personal,
+        "branch_kpi": branch,
+        "seasonal_products": products,
+        "schedules": schedules,
+        "ai_todos": ai_todo_res.todos
+    }
+
 

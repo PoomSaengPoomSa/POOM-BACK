@@ -5,6 +5,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     CheckConstraint,
+    Index,
 )
 from sqlalchemy.orm import relationship
 
@@ -29,6 +30,8 @@ class Schedule(Base):
             "category IN ('개인', '공지', '상담')",
             name="ck_schedule_category",
         ),
+        Index('idx_sched_u_cat_exec', 'u_id', 'category', execution_date.desc()),
+        Index('idx_sched_c_cat_exec', 'c_id', 'category', execution_date.desc()),
     )
 
     # Relationships
