@@ -61,7 +61,9 @@ def confirm_ai_todo(
             if parsed_target_date:
                 start_dt = datetime.combine(parsed_target_date, t.execution_date.time())
                 
-            end_dt = start_dt + timedelta(hours=1)
+            # 안부 연락은 15분으로 가볍게 배치, 상담/분석/KPI는 1시간 심층 배치
+            duration = timedelta(minutes=15) if t.category == '안부 연락 제안' else timedelta(hours=1)
+            end_dt = start_dt + duration
             
             # DB 상에서 겹치는 일정이 있는지 검증 (날은 물론 시간대까지 겹치면 안 됨)
             overlap_exists = db.query(Schedule).filter(
@@ -93,12 +95,13 @@ def confirm_ai_todo(
             }
             sched_cat = category_mapping.get(t.category, '상담')
             
+            duration = timedelta(minutes=15) if t.category == '안부 연락 제안' else timedelta(hours=1)
             new_sched = Schedule(
                 title=t.title,
                 memo=t.memo or "AI 추천으로 등록된 일정",
                 category=sched_cat,
                 execution_date=start_dt,
-                end_datetime=start_dt + timedelta(hours=1),
+                end_datetime=start_dt + duration,
                 u_id=t.u_id,
                 c_id=t.c_id,
                 at_id=t.at_id
