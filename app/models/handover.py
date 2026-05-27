@@ -6,6 +6,7 @@ from sqlalchemy import (
     ForeignKey,
     CheckConstraint,
     func,
+    Index,
 )
 from sqlalchemy.orm import relationship
 
@@ -28,6 +29,7 @@ class Handover(Base):
             "status IN ('대기', '진행중', '완료')",
             name="ck_handover_status",
         ),
+        Index('idx_ho_from_status', 'from_u_id', 'status'),
     )
 
     # Relationships

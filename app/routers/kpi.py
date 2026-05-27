@@ -8,6 +8,7 @@ from app.schemas.kpi import (
     SeasonalProductDetailResponse,
     PersonalKpiResponse,
     BranchKpiResponse,
+    DashboardSummaryResponse,
 )
 from app.services import kpi as kpi_service
 
@@ -37,6 +38,16 @@ def get_seasonal_product_detail(
     return kpi_service.get_seasonal_product_detail(
         product_id, current_user, db
     )
+
+
+@router.get("/summary", response_model=DashboardSummaryResponse)
+def get_dashboard_summary(
+    u_id: str = Query(..., description="PB 사번"),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """지표, 일정, AI To-Do 통합 대시보드 요약 정보 조회"""
+    return kpi_service.get_dashboard_summary(u_id, current_user, db)
 
 
 @router.get("/personal", response_model=PersonalKpiResponse)

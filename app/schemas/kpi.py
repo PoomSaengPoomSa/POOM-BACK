@@ -83,3 +83,15 @@ class BranchKpiResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+from app.schemas.schedule import ScheduleResponse
+from app.schemas.ai_todo import AiTodoItem
+
+class DashboardSummaryResponse(BaseModel):
+    personal_kpi: PersonalKpiResponse
+    branch_kpi: BranchKpiResponse
+    seasonal_products: SeasonalProductListResponse
+    schedules: List[ScheduleResponse]
+    ai_todos: List[AiTodoItem]
+
+
+

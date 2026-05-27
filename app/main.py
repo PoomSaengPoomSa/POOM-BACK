@@ -26,17 +26,28 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+import urllib.request
+import json
+import concurrent.futures
+
 ES_HOST = "http://ap.loclx.io:9201"
 
-async def send_log_to_elasticsearch(log_data: dict):
+# Thread pool executor to handle blocking network/DNS calls in background threads
+executor = concurrent.futures.ThreadPoolExecutor(max_workers=20)
+
+def send_log_sync(log_data: dict):
     try:
-        async with httpx.AsyncClient(timeout=1.0) as client:
-            await client.post(
-                f"{ES_HOST}/system_logs/_doc",
-                json=log_data
-            )
-    except Exception as e:
-        logger.warning(f"Failed to record access log in remote Elasticsearch: {e}")
+        req = urllib.request.Request(
+            f"{ES_HOST}/system_logs/_doc",
+            data=json.dumps(log_data).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        # Use a short timeout of 0.5s so background threads release quickly when down
+        with urllib.request.urlopen(req, timeout=0.5) as response:
+            response.read()
+    except Exception:
+        pass
 
 @app.middleware("http")
 async def log_request_middleware(request, call_next):
@@ -60,7 +71,9 @@ async def log_request_middleware(request, call_next):
             "ms": ms,
             "user_id": "system"
         }
-        asyncio.create_task(send_log_to_elasticsearch(log_data))
+        # Run blocking DNS/HTTP log call in a background thread to prevent freezing the FastAPI event loop
+        loop = asyncio.get_running_loop()
+        loop.run_in_executor(executor, send_log_sync, log_data)
         
     return response
 

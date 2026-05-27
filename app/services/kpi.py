@@ -307,3 +307,29 @@ def get_branch_kpi(u_id: str, db: Session) -> BranchKpiResponse:
         non_interest_delta=non_interest_delta,
     )
 
+
+def get_dashboard_summary(u_id: str, current_user, db: Session):
+    """지표, 일정, AI To-Do 통합 대시보드 요약 정보 조회"""
+    from app.services.schedule import get_schedules
+    from app.services.ai_todo import get_ai_todos
+    
+    personal = get_personal_kpi(u_id, db)
+    branch = get_branch_kpi(u_id, db)
+    
+    try:
+        products = get_seasonal_products(u_id, current_user, db)
+    except HTTPException:
+        products = {"total_count": 0, "products": []}
+        
+    schedules = get_schedules(current_user, db)
+    ai_todo_res = get_ai_todos(u_id, current_user, db)
+    
+    return {
+        "personal_kpi": personal,
+        "branch_kpi": branch,
+        "seasonal_products": products,
+        "schedules": schedules,
+        "ai_todos": ai_todo_res.todos
+    }
+
+

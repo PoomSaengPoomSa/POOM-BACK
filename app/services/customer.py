@@ -62,11 +62,8 @@ def get_customers(
             ).all() if s.c_id is not None
         ]
         
-        # 데모용 짝수 고객이면서 신규 고객이 아니거나, 오늘 실제 일정이 있는 고객 필터링
-        query = query.filter(
-            ((Customer.c_id % 2 == 0) & (Customer.llm_insight.is_(None) | (Customer.llm_insight != "신규 등록 고객입니다."))) |
-            Customer.c_id.in_(today_scheduled_c_ids)
-        )
+        # 실제 오늘 일정이 존재하는 고객 정보만 정확하게 조회하도록 필터링
+        query = query.filter(Customer.c_id.in_(today_scheduled_c_ids))
         
     # 페이징 적용
     offset = (page - 1) * size
@@ -485,14 +482,8 @@ def get_visit_statistics(
 
     monthly_visits = []
     for y, m in months_to_query:
-        count = db.query(Schedule).filter(
-            Schedule.u_id == current_user.id,
-            Schedule.c_id == customer_id,
-            Schedule.category == "상담",
-            Schedule.execution_date <= now,
-            extract('year', Schedule.execution_date) == y,
-            extract('month', Schedule.execution_date) == m
-        ).count()
+        # Perform counting in Python memory instead of executing separate SQL count queries in a loop
+        count = sum(1 for v in visits if v.execution_date and v.execution_date.year == y and v.execution_date.month == m)
         
         monthly_visits.append(
             VisitMonthCount(

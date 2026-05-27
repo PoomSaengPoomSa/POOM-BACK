@@ -1,4 +1,4 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException, status
 from typing import List
 from app.models.schedule import Schedule
@@ -26,7 +26,7 @@ def create_schedule(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="선택하신 시간에 이미 다른 일정이 존재합니다. 중복 등록할 수 없습니다.",
         )
-
+ 
     new_sched = Schedule(
         title=request.content,
         memo=request.memo,
@@ -46,7 +46,17 @@ def get_schedules(
     current_user, db: Session
 ) -> List[ScheduleResponse]:
     """일정 목록 조회"""
-    return db.query(Schedule).filter(Schedule.u_id == current_user.id).all()
+    schedules = (
+        db.query(Schedule)
+        .options(joinedload(Schedule.customer))
+        .filter(Schedule.u_id == current_user.id)
+        .all()
+    )
+    
+    for s in schedules:
+        s.customer_name = s.customer.name if s.customer else ""
+        
+    return schedules
 
 
 def get_schedule(

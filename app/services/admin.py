@@ -3,7 +3,8 @@ from datetime import datetime, timedelta
 import random
 import logging
 from typing import Optional
-from sqlalchemy.orm import Session
+from sqlalchemy import func
+from sqlalchemy.orm import Session, joinedload
 from app.models.account import PbUser, Account
 from app.models.branch import Branch
 from app.models.customer import Customer
@@ -176,13 +177,26 @@ async def get_branch_stats(
 ) -> BranchStatsResponse:
     """지점별 통계 조회"""
     branches = db.query(Branch).all()
-    stats = []
     
+    # Calculate total and active PBs per branch in single queries
+    total_counts = dict(
+        db.query(PbUser.branch, func.count(PbUser.u_id))
+        .group_by(PbUser.branch)
+        .all()
+    )
+    active_counts = dict(
+        db.query(PbUser.branch, func.count(PbUser.u_id))
+        .filter(PbUser.status == "재직")
+        .group_by(PbUser.branch)
+        .all()
+    )
+    
+    stats = []
     for b in branches:
-        total_pbs = db.query(PbUser).filter(PbUser.branch == b.b_id).count()
+        total_pbs = total_counts.get(b.b_id, 0)
         if total_pbs == 0:
             continue
-        active_pbs = db.query(PbUser).filter(PbUser.branch == b.b_id, PbUser.status == "재직").count()
+        active_pbs = active_counts.get(b.b_id, 0)
         rate = round((active_pbs / total_pbs) * 100, 1)
         stats.append(BranchStats(branch_name=b.name, access_rate=rate))
         
@@ -204,7 +218,12 @@ async def get_employee_usage(
     period: Optional[str], db: Session
 ) -> EmployeeUsageResponse:
     """직원 사용량 조회"""
-    accounts = db.query(Account).filter(Account.role != "admin").all()
+    accounts = (
+        db.query(Account)
+        .options(joinedload(Account.pb_user).joinedload(PbUser.branch_rel))
+        .filter(Account.role != "admin")
+        .all()
+    )
     usage_list = []
     
     for acc in accounts:
@@ -246,7 +265,9 @@ async def get_permissions(
     search: Optional[str], branch: Optional[str], db: Session
 ) -> PermissionListResponse:
     """권한 목록 조회"""
-    query = db.query(Account).filter(Account.role != "admin")
+    query = db.query(Account).options(
+        joinedload(Account.pb_user).joinedload(PbUser.branch_rel)
+    ).filter(Account.role != "admin")
     
     if search:
         query = query.outerjoin(PbUser, Account.id == PbUser.u_id)
@@ -260,6 +281,22 @@ async def get_permissions(
     accounts = query.all()
     employees = []
     
+    # Eager aggregate: Get all client counts in a single query
+    client_counts = dict(
+        db.query(InCharge.u_id, func.count(InCharge.c_id))
+        .group_by(InCharge.u_id)
+        .all()
+    )
+    
+    # Pre-fetch all active pending handovers in a single query to avoid lazy loading handover and its associations inside loop
+    pending_handovers = {
+        h.from_u_id: h
+        for h in db.query(Handover)
+        .options(joinedload(Handover.to_user).joinedload(PbUser.branch_rel))
+        .filter(Handover.status == "대기")
+        .all()
+    }
+    
     for acc in accounts:
         pb = acc.pb_user
         u_id = acc.id
@@ -268,12 +305,12 @@ async def get_permissions(
         position = pb.position if pb else "PB"
         status = pb.status if pb else "재직"
         
-        client_count = db.query(InCharge).filter(InCharge.u_id == u_id).count()
+        client_count = client_counts.get(u_id, 0)
         pending = (status == "발령대기")
         branch_note = None
         
         if pending and pb:
-            handover = db.query(Handover).filter(Handover.from_u_id == u_id, Handover.status == "대기").first()
+            handover = pending_handovers.get(u_id)
             if handover and handover.to_user and handover.to_user.branch_rel:
                 branch_note = f"발령 대기 {pb.branch_rel.name.replace('지점', '')} → {handover.to_user.branch_rel.name.replace('지점', '')}"
             else:
@@ -354,20 +391,23 @@ async def get_handovers(
 
 async def get_employee_customers(u_id: str, db: Session) -> CustomerListResponse:
     """직원의 고객 목록 조회"""
-    records = db.query(InCharge).filter(InCharge.u_id == u_id).all()
+    customers_db = (
+        db.query(Customer)
+        .join(InCharge, Customer.c_id == InCharge.c_id)
+        .filter(InCharge.u_id == u_id)
+        .all()
+    )
     customers = []
     
-    for r in records:
-        c = db.query(Customer).filter(Customer.c_id == r.c_id).first()
-        if c:
-            assets_str = f"{c.grade} · 자산 {int(c.total_assets / 100000000)}억" if c.total_assets else "일반 · 자산 0원"
-            customers.append(CustomerListItem(
-                id=str(c.c_id),
-                name=c.name,
-                assets=assets_str
-            ))
+    for c in customers_db:
+        assets_str = f"{c.grade} · 자산 {int(c.total_assets / 100000000)}억" if c.total_assets else "일반 · 자산 0원"
+        customers.append(CustomerListItem(
+            id=str(c.c_id),
+            name=c.name,
+            assets=assets_str
+        ))
             
-    return CustomerListResponse(customers=customers, total=len(customers))
+    return CustomerListResponse(customers=customers, total=len(customers_db))
 
 
 async def transfer_customers(
