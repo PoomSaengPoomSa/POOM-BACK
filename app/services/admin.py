@@ -53,7 +53,9 @@ async def get_system_usage(
 
 logger = logging.getLogger(__name__)
 
-ES_HOST = "http://ap.loclx.io:9201"
+from app.config import get_settings
+settings = get_settings()
+ES_HOST = settings.ES_HOST
 
 async def get_system_logs(
     filter: Optional[str], db: Session

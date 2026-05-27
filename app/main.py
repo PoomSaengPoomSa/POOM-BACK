@@ -30,7 +30,9 @@ import urllib.request
 import json
 import concurrent.futures
 
-ES_HOST = "http://ap.loclx.io:9201"
+from app.config import get_settings
+settings = get_settings()
+ES_HOST = settings.ES_HOST
 
 # Thread pool executor to handle blocking network/DNS calls in background threads
 executor = concurrent.futures.ThreadPoolExecutor(max_workers=20)
@@ -71,6 +73,9 @@ async def log_request_middleware(request, call_next):
             "ms": ms,
             "user_id": "system"
         }
+        # 터미널에 로그 출력
+        print(f"📝 [API LOG] [{request.method}] {path} - Status: {response.status_code} ({ms}ms)")
+        
         # Run blocking DNS/HTTP log call in a background thread to prevent freezing the FastAPI event loop
         loop = asyncio.get_running_loop()
         loop.run_in_executor(executor, send_log_sync, log_data)
