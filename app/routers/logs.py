@@ -11,7 +11,9 @@ import os
 
 router = APIRouter(prefix="", tags=["logs"])
 
-ES_HOST = os.getenv("ELASTICSEARCH_URL", "http://elasticsearch:9200")
+from app.config import get_settings
+settings = get_settings()
+ES_HOST = os.getenv("ELASTICSEARCH_URL", settings.ES_HOST)
 ES_INDEX = "system_logs"
 
 
