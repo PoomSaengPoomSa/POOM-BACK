@@ -59,8 +59,27 @@ async def log_request_middleware(request, call_next):
     ms = int(process_time * 1000)
     
     path = request.url.path
-    # 'news' 및 'notification' (뉴스 버킷 관련) 경로는 Elasticsearch에 적재하지 않음
-    if "news" in path or "notification" in path:
+    
+    # Authorization 헤더에서 토큰을 추출하여 user_id 및 role 확인
+    user_id = "system"
+    is_admin = False
+    
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1]
+        try:
+            from app.utils.security import verify_token
+            payload = verify_token(token)
+            if payload:
+                user_id = payload.get("sub", "system")
+                role = payload.get("role", "")
+                if "admin" in user_id.lower() or role.lower() == "admin":
+                    is_admin = True
+        except Exception:
+            pass
+
+    # 'news', 'notification' (뉴스 버킷 관련) 및 'admin' (어드민 접근 관련) 경로 또는 admin 사용자 요청은 Elasticsearch에 적재하지 않음
+    if "news" in path or "notification" in path or "admin" in path or is_admin:
         return response
 
     if path.startswith("/api/v1") or path.startswith("/api"):
@@ -71,10 +90,10 @@ async def log_request_middleware(request, call_next):
             "method": request.method,
             "status": response.status_code,
             "ms": ms,
-            "user_id": "system"
+            "user_id": user_id
         }
         # 터미널에 로그 출력
-        print(f"📝 [API LOG] [{request.method}] {path} - Status: {response.status_code} ({ms}ms)")
+        print(f"📝 [API LOG] [{request.method}] {path} - Status: {response.status_code} ({ms}ms) - User: {user_id}")
         
         # Run blocking DNS/HTTP log call in a background thread to prevent freezing the FastAPI event loop
         loop = asyncio.get_running_loop()
