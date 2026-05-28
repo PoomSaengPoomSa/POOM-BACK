@@ -22,6 +22,8 @@ from app.schemas.customer import (
     SaveReportResponse,
     SimulatorChatRequest,
     SimulatorChatResponse,
+    SaveSimulatorInfoRequest,
+    SimulatorInfoResponse,
 )
 from app.services import customer as customer_service
 
@@ -199,4 +201,29 @@ def simulator_chat(
     """시뮬레이터 AI 질의 및 자산 시뮬레이션"""
     return customer_service.simulator_chat(
         customer_id, request, current_user, db
+    )
+
+
+@router.post("/{customer_id}/simulator/save", response_model=MessageResponse)
+def save_simulator_info(
+    customer_id: int,
+    request: SaveSimulatorInfoRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """시뮬레이터 정보 및 추가 입력사항 저장"""
+    return customer_service.save_simulator_info(
+        customer_id, request, current_user, db
+    )
+
+
+@router.get("/{customer_id}/simulator/info", response_model=SimulatorInfoResponse)
+def get_simulator_info(
+    customer_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """시뮬레이터 정보 조회 및 추가 입력사항 파싱"""
+    return customer_service.get_simulator_info(
+        customer_id, current_user, db
     )
