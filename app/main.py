@@ -34,22 +34,72 @@ from app.config import get_settings
 settings = get_settings()
 ES_HOST = settings.ES_HOST
 
-# Thread pool executor to handle blocking network/DNS calls in background threads
 executor = concurrent.futures.ThreadPoolExecutor(max_workers=20)
 
+
 def send_log_sync(log_data: dict):
+    """system_logs 인덱스에 API 요청 로그 적재"""
     try:
         req = urllib.request.Request(
             f"{ES_HOST}/system_logs/_doc",
             data=json.dumps(log_data).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", "bypass-tunnel-reminder": "true"},
             method="POST"
         )
-        # Use a short timeout of 0.5s so background threads release quickly when down
-        with urllib.request.urlopen(req, timeout=0.5) as response:
+        with urllib.request.urlopen(req, timeout=3.0) as response:  # 0.5s → 3.0s
             response.read()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"[system_logs] ES 적재 실패: {e!r}")
+
+
+def send_emp_log_sync(log_data: dict):
+    """employee_logs 인덱스에 직원 활동 로그 적재"""
+    try:
+        req = urllib.request.Request(
+            f"{ES_HOST}/employee_logs/_doc",
+            data=json.dumps(log_data).encode("utf-8"),
+            headers={"Content-Type": "application/json", "bypass-tunnel-reminder": "true"},
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=3.0) as response:  # 0.5s → 3.0s
+            response.read()
+    except Exception as e:
+        logger.warning(f"[employee_logs] ES 적재 실패: {e!r}")
+
+
+def send_emp_log_with_info(user_id: str, feature: str, timestamp: str):
+    """DB에서 PB name/branch 조회 후 employee_logs에 적재"""
+    name = user_id
+    branch = "미지정 지점"
+    try:
+        from app.database import SessionLocal
+        from app.models.account import PbUser
+        from sqlalchemy.orm import joinedload
+
+        db = SessionLocal()
+        try:
+            pb = (
+                db.query(PbUser)
+                .options(joinedload(PbUser.branch_rel))
+                .filter(PbUser.u_id == user_id)
+                .first()
+            )
+            if pb:
+                name = pb.name
+                branch = pb.branch_rel.name if pb.branch_rel else "미지정 지점"
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning(f"[employee_logs] PB 정보 조회 실패: {e!r}")
+
+    send_emp_log_sync({
+        "timestamp": timestamp,
+        "user_id": user_id,
+        "name": name,
+        "branch": branch,
+        "feature": feature,
+    })
+
 
 @app.middleware("http")
 async def log_request_middleware(request, call_next):
@@ -57,13 +107,12 @@ async def log_request_middleware(request, call_next):
     response = await call_next(request)
     process_time = time.time() - start_time
     ms = int(process_time * 1000)
-    
+
     path = request.url.path
-    
-    # Authorization 헤더에서 토큰을 추출하여 user_id 및 role 확인
+
     user_id = "system"
     is_admin = False
-    
+
     auth_header = request.headers.get("Authorization")
     if auth_header and auth_header.startswith("Bearer "):
         token = auth_header.split(" ")[1]
@@ -78,28 +127,28 @@ async def log_request_middleware(request, call_next):
         except Exception:
             pass
 
-    # 'news', 'notification' (뉴스 버킷 관련) 및 'admin' (어드민 접근 관련) 경로 또는 admin 사용자 요청은 Elasticsearch system_logs에 적재하지 않음
+    # admin 경로 및 admin 유저 요청은 로그 적재 제외
     if "news" in path or "notification" in path or "admin" in path or is_admin:
         return response
 
     if path.startswith("/api/v1") or path.startswith("/api"):
+        timestamp = datetime.now().isoformat() + "Z"
+
+        # system_logs: 모든 API 요청 기록
         log_data = {
-            "timestamp": datetime.now().isoformat() + "Z",
+            "timestamp": timestamp,
             "api": f"[{request.method}] {path}",
             "path": path,
             "method": request.method,
             "status": response.status_code,
             "ms": ms,
-            "user_id": user_id
+            "user_id": user_id,
         }
-        # 터미널에 로그 출력
         print(f"[API LOG] [{request.method}] {path} - Status: {response.status_code} ({ms}ms)")
-        
-        # Run blocking DNS/HTTP log call in a background thread to prevent freezing the FastAPI event loop
         loop = asyncio.get_running_loop()
         loop.run_in_executor(executor, send_log_sync, log_data)
-        
-        # 일반 직원(PB)의 활동로그인 경우 employee_logs 인덱스에도 백그라운드로 동시에 적재
+
+        # employee_logs: PB 유저의 기능별 활동만 기록 (name/branch 포함)
         if user_id != "system" and "admin" not in user_id.lower() and not is_admin:
             feature = None
             if "news" in path or "archive" in path or "trend" in path:
@@ -112,30 +161,14 @@ async def log_request_middleware(request, call_next):
                 feature = "고객 관리"
             elif "schedule" in path:
                 feature = "캘린더"
-                
+
             if feature:
-                emp_log_data = {
-                    "timestamp": datetime.now().isoformat() + "Z",
-                    "user_id": user_id,
-                    "feature": feature
-                }
-                
-                def send_emp_log_sync(log_data: dict):
-                    try:
-                        req = urllib.request.Request(
-                            f"{ES_HOST}/employee_logs/_doc",
-                            data=json.dumps(log_data).encode("utf-8"),
-                            headers={"Content-Type": "application/json"},
-                            method="POST"
-                        )
-                        with urllib.request.urlopen(req, timeout=0.5) as response:
-                            response.read()
-                    except Exception:
-                        pass
-                        
-                loop.run_in_executor(executor, send_emp_log_sync, emp_log_data)
-                
+                loop.run_in_executor(
+                    executor, send_emp_log_with_info, user_id, feature, timestamp
+                )
+
     return response
+
 
 # CORS 설정
 origins = [
@@ -164,7 +197,6 @@ app.include_router(trend.router, prefix="/api/v1/trend", tags=["Trend"])
 app.include_router(ai_todo.router, prefix="/api/v1/ai-todo", tags=["AI Todo"])
 app.include_router(kpi.router, prefix="/api/v1/kpi", tags=["KPI"])
 app.include_router(notification.router, prefix="/api/v1", tags=["Notification"])
-
 
 
 @app.get("/health", tags=["Health"])
