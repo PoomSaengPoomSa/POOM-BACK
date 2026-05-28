@@ -78,7 +78,7 @@ async def log_request_middleware(request, call_next):
         except Exception:
             pass
 
-    # 'news', 'notification' (뉴스 버킷 관련) 및 'admin' (어드민 접근 관련) 경로 또는 admin 사용자 요청은 Elasticsearch에 적재하지 않음
+    # 'news', 'notification' (뉴스 버킷 관련) 및 'admin' (어드민 접근 관련) 경로 또는 admin 사용자 요청은 Elasticsearch system_logs에 적재하지 않음
     if "news" in path or "notification" in path or "admin" in path or is_admin:
         return response
 
@@ -99,6 +99,42 @@ async def log_request_middleware(request, call_next):
         loop = asyncio.get_running_loop()
         loop.run_in_executor(executor, send_log_sync, log_data)
         
+        # 일반 직원(PB)의 활동로그인 경우 employee_logs 인덱스에도 백그라운드로 동시에 적재
+        if user_id != "system" and "admin" not in user_id.lower() and not is_admin:
+            feature = None
+            if "news" in path or "archive" in path or "trend" in path:
+                feature = "뉴스 아카이브"
+            elif "todo" in path:
+                feature = "AI TODO"
+            elif "memo" in path:
+                feature = "AI 메모"
+            elif "customer" in path:
+                feature = "고객 관리"
+            elif "schedule" in path:
+                feature = "캘린더"
+                
+            if feature:
+                emp_log_data = {
+                    "timestamp": datetime.now().isoformat() + "Z",
+                    "user_id": user_id,
+                    "feature": feature
+                }
+                
+                def send_emp_log_sync(log_data: dict):
+                    try:
+                        req = urllib.request.Request(
+                            f"{ES_HOST}/employee_logs/_doc",
+                            data=json.dumps(log_data).encode("utf-8"),
+                            headers={"Content-Type": "application/json"},
+                            method="POST"
+                        )
+                        with urllib.request.urlopen(req, timeout=0.5) as response:
+                            response.read()
+                    except Exception:
+                        pass
+                        
+                loop.run_in_executor(executor, send_emp_log_sync, emp_log_data)
+                
     return response
 
 # CORS 설정
