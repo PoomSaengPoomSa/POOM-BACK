@@ -3,10 +3,45 @@ from typing import Optional, List
 from datetime import datetime
 
 
+class ChartPoint(BaseModel):
+    time: str
+    value: float
+
+
+class RecentErrorLog(BaseModel):
+    time: str
+    service: str
+    error_detail: str
+
+
+class MLPerformanceMetrics(BaseModel):
+    name: str
+    metric1_name: str
+    metric1_val: str
+    metric2_name: str
+    metric2_val: str
+    metric3_name: str
+    metric3_val: str
+    metric4_name: str
+    metric4_val: str
+
+
 # 대시보드 지표
 class DashboardMetrics(BaseModel):
     period: Optional[str] = None
-    # placeholder fields
+    server_status: str
+    api_response_speed: float
+    api_response_speed_change: float
+    error_rate: float
+    error_rate_change: float
+    db_status: str
+    es_status: str
+    ai_status: str
+    requests_chart: List[ChartPoint]
+    latency_chart: List[ChartPoint]
+    error_chart: List[ChartPoint]
+    recent_errors: List[RecentErrorLog]
+    ml_metrics: List[MLPerformanceMetrics]
 
 
 # 기능별 사용량
@@ -37,6 +72,15 @@ class EmployeeDashboard(BaseModel):
     total_count: int
     access_rate: str
     avg_session_time: str
+    total_employees: int
+    total_employees_change: str
+    active_employees: int
+    active_employees_sub: str
+    todo_approved_month: int
+    todo_approved_month_total: int
+    todo_approved_today: int
+    todo_approved_today_total: int
+    es_status: Optional[str] = "정상"
 
 
 # 부서별 접속률
@@ -51,19 +95,28 @@ class WeeklyTrend(BaseModel):
     value: float
 
 
+# 최근 활동 로그
+class RecentActivityLog(BaseModel):
+    time: str
+    name: str
+    branch: str
+    feature: str
+
+
 # 직원별 기능 사용 현황
 class EmployeeUsage(BaseModel):
     id: str
     name: str
     branch: str
-    stat1: str
-    stat2: str
-    stat3: str
-    stat4: str
-    stat5: str
-    total: str
+    email: str
     status: str
     statusClass: str
+    stat1: Optional[str] = None
+    stat2: Optional[str] = None
+    stat3: Optional[str] = None
+    stat4: Optional[str] = None
+    stat5: Optional[str] = None
+    total: Optional[str] = None
 
 
 # 권한설정 (직원목록)
@@ -140,6 +193,8 @@ class WeeklyTrendResponse(BaseModel):
 class EmployeeUsageResponse(BaseModel):
     usage: List[EmployeeUsage]
     total: int
+    recent_activities: List[RecentActivityLog]
+    es_status: Optional[str] = "정상"
 
 
 class AvailableReceiversResponse(BaseModel):
