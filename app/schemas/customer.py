@@ -229,3 +229,12 @@ class SimulatorChatResponse(BaseModel):
     status: int
     message: str
     data: SimulatorChatData
+
+
+class SaveSimulatorInfoRequest(BaseModel):
+    additional_notes: str
+
+
+class SimulatorInfoResponse(BaseModel):
+    exists: bool
+    additional_notes: str
