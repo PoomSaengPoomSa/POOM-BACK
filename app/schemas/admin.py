@@ -68,18 +68,18 @@ class LogListResponse(BaseModel):
 
 # 직원 대시보드
 class EmployeeDashboard(BaseModel):
-    active_count: int
+    active_count: Optional[int] = None
     total_count: int
     access_rate: str
-    avg_session_time: str
+    avg_session_time: Optional[str] = None
     total_employees: int
-    total_employees_change: str
-    active_employees: int
-    active_employees_sub: str
-    todo_approved_month: int
-    todo_approved_month_total: int
-    todo_approved_today: int
-    todo_approved_today_total: int
+    total_employees_change: Optional[str] = None
+    active_employees: Optional[int] = None
+    active_employees_sub: Optional[str] = None
+    todo_approved_month: Optional[int] = None
+    todo_approved_month_total: Optional[int] = None
+    todo_approved_today: Optional[int] = None
+    todo_approved_today_total: Optional[int] = None
     es_status: Optional[str] = "정상"
 
 

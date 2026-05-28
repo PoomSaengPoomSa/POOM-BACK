@@ -214,6 +214,18 @@ async def get_system_dashboard(
     error_rate = round((error_count / total_count) * 100, 2) if total_count > 0 else 0.0
     server_status = "정상" if error_rate < 5.0 else ("주의" if error_rate < 15.0 else "장애")
 
+    # 1시간 전(인덱스 22)과 현재(인덱스 23) 비교하여 실시간 증감률 계산
+    current_latency = latency_chart[23].value if len(latency_chart) > 23 else 0.0
+    prev_latency = latency_chart[22].value if len(latency_chart) > 22 else 0.0
+    if prev_latency > 0:
+        api_response_speed_change = round(((current_latency - prev_latency) / prev_latency) * 100, 1)
+    else:
+        api_response_speed_change = 0.0
+
+    current_err = error_chart[23].value if len(error_chart) > 23 else 0.0
+    prev_err = error_chart[22].value if len(error_chart) > 22 else 0.0
+    error_rate_change = round(current_err - prev_err, 2)
+
     ml_metrics = [
         MLPerformanceMetrics(
             name="기준 금리",
@@ -242,9 +254,9 @@ async def get_system_dashboard(
         period=period,
         server_status=server_status,
         api_response_speed=api_response_speed,
-        api_response_speed_change=-5.0,
+        api_response_speed_change=api_response_speed_change,
         error_rate=error_rate,
-        error_rate_change=0.2,
+        error_rate_change=error_rate_change,
         db_status=db_status,
         es_status=es_status,
         ai_status="정상",
@@ -320,53 +332,70 @@ async def get_system_logs(
 async def get_employee_dashboard(
     period: Optional[str], db: Session
 ) -> EmployeeDashboardResponse:
-    total_pb = db.query(PbUser).filter(PbUser.status != "퇴사").count()
-    active_pb = db.query(PbUser).filter(PbUser.status == "재직").count()
+    # 1. 전체 직원 수는 account 테이블에서 role이 'user'인 것 카운트
+    total_pb = db.query(Account).filter(Account.role == "user").count()
 
+    # 2. 현재 접속 직원은 Elasticsearch의 system_logs 또는 employee_logs에서 최근 10분간 기록이 있는 고유 user_id 목록 확인
+    active_users = set()
     es_status = "정상"
     try:
         async with httpx.AsyncClient(timeout=3.0, headers={"bypass-tunnel-reminder": "true"}, http2=False) as client:
-
-            response = await client.get(f"{ES_HOST}/")
-            if response.status_code != 200:
+            response = await client.post(
+                f"{ES_HOST}/system_logs/_search",
+                json={
+                    "query": {
+                        "bool": {
+                            "must": [
+                                {"range": {"timestamp": {"gte": "now-10m"}}}
+                            ],
+                            "must_not": [
+                                {"term": {"user_id": "system"}},
+                                {"term": {"user_id": "admin1"}}
+                            ]
+                        }
+                    },
+                    "_source": ["user_id"],
+                    "size": 1000
+                }
+            )
+            if response.status_code == 200:
+                hits = response.json().get("hits", {}).get("hits", [])
+                for hit in hits:
+                    uid = hit.get("_source", {}).get("user_id")
+                    if uid:
+                        active_users.add(uid)
+            else:
+                logger.warning(f"ES system_logs active check failed: {response.status_code}")
                 es_status = "오류"
-    except Exception:
+    except Exception as e:
+        logger.warning(f"ES system_logs active check connection failed: {e!r}")
         es_status = "오류"
 
+    active_pb_count = len(active_users)
+    active_employees = active_pb_count if active_pb_count > 0 else None
+
     return EmployeeDashboardResponse(
-        active_count=active_pb,
+        active_count=active_employees,
         total_count=total_pb,
-        access_rate=f"{int((active_pb / total_pb) * 100)}%" if total_pb > 0 else "0%",
-        avg_session_time="24분",
+        access_rate=f"{int((active_pb_count / total_pb) * 100)}%" if total_pb > 0 else "0%",
+        avg_session_time=None,
         total_employees=total_pb,
-        total_employees_change="▲ 5(전월 대비)",
-        active_employees=active_pb,
-        active_employees_sub="실시간",
-        todo_approved_month=120,
-        todo_approved_month_total=150,
-        todo_approved_today=20,
-        todo_approved_today_total=25,
+        total_employees_change=None,
+        active_employees=active_employees,
+        active_employees_sub=None,
+        todo_approved_month=None,
+        todo_approved_month_total=None,
+        todo_approved_today=None,
+        todo_approved_today_total=None,
         es_status=es_status,
     )
-
+    
 
 async def get_branch_stats(period: Optional[str], db: Session) -> BranchStatsResponse:
-    stats = [
-        BranchStats(branch_name="WM영업1팀", access_rate=80.0),
-        BranchStats(branch_name="WM영업2팀", access_rate=72.0),
-        BranchStats(branch_name="리테일PB팀", access_rate=68.0),
-    ]
-    return BranchStatsResponse(stats=stats, period=period)
-
+    return BranchStatsResponse(stats=[], period=period)
 
 async def get_weekly_trend(db: Session) -> WeeklyTrendResponse:
-    trends = [
-        WeeklyTrend(name="4주전", value=61.0),
-        WeeklyTrend(name="3주전", value=67.0),
-        WeeklyTrend(name="2주전", value=70.0),
-        WeeklyTrend(name="지난주", value=75.0),
-    ]
-    return WeeklyTrendResponse(trends=trends)
+    return WeeklyTrendResponse(trends=[])
 
 
 async def get_employee_usage(period: Optional[str], db: Session) -> EmployeeUsageResponse:
@@ -375,15 +404,68 @@ async def get_employee_usage(period: Optional[str], db: Session) -> EmployeeUsag
     # 인덱스 매핑 보장 (seed X)
     await ensure_employee_logs_index(ES_HOST)
 
-    # 직원 현황은 DB에서
-    pbs = db.query(PbUser).options(joinedload(PbUser.branch_rel)).filter(PbUser.status != "퇴사").all()
+    # 1. Elasticsearch에서 최근 10분간 기록이 있는 고유 user_id 목록 확인하여 접속 중인지 체크
+    active_users = set()
+    try:
+        async with httpx.AsyncClient(timeout=3.0, headers={"bypass-tunnel-reminder": "true"}, http2=False) as client:
+            response = await client.post(
+                f"{ES_HOST}/system_logs/_search",
+                json={
+                    "query": {
+                        "bool": {
+                            "must": [
+                                {"range": {"timestamp": {"gte": "now-10m"}}}
+                            ],
+                            "must_not": [
+                                {"term": {"user_id": "system"}},
+                                {"term": {"user_id": "admin1"}}
+                            ]
+                        }
+                    },
+                    "_source": ["user_id"],
+                    "size": 1000
+                }
+            )
+            if response.status_code == 200:
+                hits = response.json().get("hits", {}).get("hits", [])
+                for hit in hits:
+                    uid = hit.get("_source", {}).get("user_id")
+                    if uid:
+                        active_users.add(uid)
+    except Exception as e:
+        logger.warning(f"ES active check for usage list failed: {e!r}")
+
+    # 2. 직원 현황은 DB의 account 테이블 중 role이 'user'인 애들을 PbUser와 조인하여 이름(name) 순으로 정렬
+    accounts = (
+        db.query(Account)
+        .options(joinedload(Account.pb_user).joinedload(PbUser.branch_rel))
+        .filter(Account.role == "user")
+        .join(PbUser, Account.id == PbUser.u_id)
+        .order_by(PbUser.name.asc())
+        .all()
+    )
+
     usage_list = []
-    for idx, pb in enumerate(pbs):
+    for idx, account in enumerate(accounts):
+        pb = account.pb_user
+        if not pb:
+            continue
         branch_name = pb.branch_rel.name if pb.branch_rel else "미지정 지점"
-        status_str = "접속 중" if pb.status == "재직" else ("발령 대기" if pb.status == "발령대기" else "오프라인")
-        status_cls = "status-online" if pb.status == "재직" else ("status-away" if pb.status == "발령대기" else "status-offline")
+        
+        # 접속 여부 판별 (최근 10분간 ES 로그 보유 여부)
+        is_online = account.id in active_users
+        status_str = "접속 중" if is_online else "오프라인"
+        status_cls = "status-online" if is_online else "status-offline"
+
+        # 사번 생성 (account.id가 'userX' 형식인 경우 100100 + X 등 매핑, 그 외에는 id 그대로 표시)
+        try:
+            user_num = int("".join(filter(str.isdigit, account.id)))
+            emp_id = f"100{user_num + 99:03d}"
+        except ValueError:
+            emp_id = account.id
+
         usage_list.append(EmployeeUsage(
-            id=f"100{idx+100:03d}",
+            id=emp_id,
             name=pb.name,
             branch=branch_name,
             email=pb.email if pb.email else "—",
@@ -515,22 +597,61 @@ async def get_available_receivers(u_id: str, db: Session) -> AvailableReceiversR
 
 
 async def get_handovers(search: Optional[str], status: Optional[str], db: Session) -> HandoverListResponse:
-    query = db.query(Handover)
+    query = db.query(Handover).options(
+        joinedload(Handover.from_user).joinedload(PbUser.branch_rel),
+        joinedload(Handover.to_user).joinedload(PbUser.branch_rel),
+    )
     if search:
         query = query.join(PbUser, Handover.from_u_id == PbUser.u_id).filter(PbUser.name.like(f"%{search}%"))
 
     handovers_db = query.order_by(Handover.h_date.desc()).all()
-    handovers = []
+    
+    # 중복 출력(동일 시점/동일 PB간의 고객별 복수 인수인계 기록)을 방지하기 위한 그룹화 작업
+    grouped_handovers = []
     for h in handovers_db:
-        from_name = h.from_user.name if h.from_user else "퇴사자"
-        to_name = h.to_user.name if h.to_user else "미지정"
-        from_branch = h.from_user.branch_rel.name.replace('지점','') if (h.from_user and h.from_user.branch_rel) else "미정"
-        to_branch = h.to_user.branch_rel.name.replace('지점','') if (h.to_user and h.to_user.branch_rel) else "미정"
+        from_user = h.from_user
+        to_user = h.to_user
+        if not from_user or not to_user:
+            continue
+            
+        found_group = False
+        for group in grouped_handovers:
+            # 동일한 날짜에 동일한 PB 간에 일어난 인수인계 기록을 하나로 묶음 (시드 데이터 5분 간격 중복 방지)
+            if (group['from_u_id'] == h.from_u_id and 
+                group['to_u_id'] == h.to_u_id and 
+                group['h_date'].date() == h.h_date.date()):
+                group['customer_count'] += 1
+                if h.h_date > group['h_date']:
+                    group['h_date'] = h.h_date
+                found_group = True
+                break
+                
+        if not found_group:
+            grouped_handovers.append({
+                'h_id': h.h_id,
+                'from_u_id': h.from_u_id,
+                'to_u_id': h.to_u_id,
+                'h_date': h.h_date,
+                'from_user': from_user,
+                'to_user': to_user,
+                'customer_count': 1
+            })
+
+    handovers = []
+    for g in grouped_handovers:
+        from_name = g['from_user'].name
+        to_name = g['to_user'].name
+        from_branch = g['from_user'].branch_rel.name.replace('지점', '') if g['from_user'].branch_rel else "미정"
+        to_branch = g['to_user'].branch_rel.name.replace('지점', '') if g['to_user'].branch_rel else "미정"
+        
+        # 고객이 여러 명이면 X명 재배정으로 스마트하게 출력
+        cust_msg = f"고객 {g['customer_count']}명 재배정" if g['customer_count'] > 1 else "고객 재배정"
+        
         handovers.append(HandoverRecord(
-            id=str(h.h_id),
+            id=str(g['h_id']),
             name=from_name,
             title=f"{from_name} {from_branch} → {to_branch}지점",
-            desc=f"고객 재배정 → {to_name} {h.h_date.strftime('%Y.%m.%d')}",
+            desc=f"{cust_msg} → {to_name} {g['h_date'].strftime('%Y.%m.%d')}",
         ))
 
     return HandoverListResponse(handovers=handovers, total=len(handovers))

@@ -41,6 +41,7 @@ class UserResponse(BaseModel):
     name: str
     email: str
     role: str
+    branch: str | None = None
     model_config = ConfigDict(from_attributes=True)
 
 
