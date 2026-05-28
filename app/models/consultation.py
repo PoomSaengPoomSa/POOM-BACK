@@ -23,7 +23,10 @@ class ConsultationReport(Base):
     __tablename__ = "consultation_report"
 
     cr_id = Column(Integer, primary_key=True, autoincrement=True)
-    content = Column(Text, nullable=False)
+    key_contents = Column(Text, nullable=False)
+    special_notes = Column(Text, nullable=False)
+    follow_up_actions = Column(Text, nullable=False)
+    summary = Column(Text, nullable=True)
     cm_id = Column(Integer, ForeignKey("consultation_memo.cm_id"), nullable=False)
 
     # Relationships

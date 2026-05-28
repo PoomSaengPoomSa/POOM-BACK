@@ -169,7 +169,10 @@ CREATE TABLE CONSULTATION_MEMO (
 
 CREATE TABLE CONSULTATION_REPORT (
     cr_id INT AUTO_INCREMENT PRIMARY KEY,
-    content TEXT NOT NULL,
+    key_contents TEXT NOT NULL,
+    special_notes TEXT NOT NULL,
+    follow_up_actions TEXT NOT NULL,
+    summary TEXT,
     cm_id INT NOT NULL,
     FOREIGN KEY (cm_id) REFERENCES CONSULTATION_MEMO(cm_id)
 );

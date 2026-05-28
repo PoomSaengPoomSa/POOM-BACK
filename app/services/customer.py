@@ -307,12 +307,12 @@ def get_customer_feature(
 
 
 def parse_report_content(report_text: str):
-    key_needs = ""
+    main_content = ""
+    special_remarks = ""
     follow_up = ""
-    next_consult = ""
     
     if not report_text:
-        return {"key_needs": "", "follow_up": "", "next_consult": ""}
+        return {"main_content": "", "special_remarks": "", "follow_up": ""}
         
     import re
     parts = re.split(r'\[(.*?)\]', report_text)
@@ -320,29 +320,26 @@ def parse_report_content(report_text: str):
         for i in range(1, len(parts), 2):
             header = parts[i].strip()
             content = parts[i+1].strip() if i+1 < len(parts) else ""
-            if "배경" in header or "니즈" in header:
-                key_needs = content
-            elif "진단" in header or "조치" in header or "계획" in header:
-                if "진단" in header or "조치" in header:
-                    follow_up = content
-                else:
-                    next_consult = content
-            elif "반응" in header or "계획" in header or "상담" in header:
-                next_consult = content
+            if "내용" in header or "배경" in header or "니즈" in header:
+                main_content = content
+            elif "특이" in header or "상담" in header or "계획" in header:
+                special_remarks = content
+            elif "조치" in header or "진단" in header:
+                follow_up = content
                 
-    if not key_needs and not follow_up and not next_consult:
+    if not main_content and not special_remarks and not follow_up:
         lines = [line.strip() for line in report_text.split('\n') if line.strip()]
         if len(lines) >= 1:
-            key_needs = lines[0]
+            main_content = lines[0]
         if len(lines) >= 2:
-            follow_up = lines[1]
+            special_remarks = lines[1]
         if len(lines) >= 3:
-            next_consult = lines[2]
+            follow_up = lines[2]
             
     return {
-        "key_needs": key_needs or "상담 내용 분석 중",
-        "follow_up": follow_up or "후속 조치 수립 중",
-        "next_consult": next_consult or "차기 일정 계획 중"
+        "main_content": main_content or "-",
+        "special_remarks": special_remarks or "-",
+        "follow_up": follow_up or "-"
     }
 
 
@@ -367,7 +364,7 @@ def get_customer_memos(
     from app.models.consultation import ConsultationMemo, ConsultationReport
     from app.schemas.customer import TimelineItem, TimelineContent, ScrollInfo
     
-    query = db.query(ConsultationMemo).options(joinedload(ConsultationMemo.report)).filter(ConsultationMemo.c_id == customer_id)
+    query = db.query(ConsultationMemo).join(ConsultationMemo.report).options(joinedload(ConsultationMemo.report)).filter(ConsultationMemo.c_id == customer_id)
     
     # Cursor pagination
     if cursor:
@@ -389,11 +386,14 @@ def get_customer_memos(
     for m in fetched_memos:
         date_str = m.consult_date.strftime("%Y.%m.%d") if m.consult_date else ""
         
-        # Fetch associated report to parse content preview
+        # Fetch associated report to populate preview
         report = m.report
-        content_dict = {"key_needs": "", "follow_up": "", "next_consult": ""}
-        if report and report.content:
-            content_dict = parse_report_content(report.content)
+        content_dict = {
+            "main_content": report.key_contents if report else "",
+            "special_remarks": report.special_notes if report else "",
+            "follow_up": report.follow_up_actions if report else "",
+            "summary": report.summary if report else ""
+        }
             
         timelines.append(
             TimelineItem(
@@ -438,9 +438,12 @@ def get_customer_memo_detail(
     title_str = extract_title(memo.memo)
     
     report = db.query(ConsultationReport).filter(ConsultationReport.cm_id == memo.cm_id).first()
-    content_dict = {"key_needs": "", "follow_up": "", "next_consult": ""}
-    if report and report.content:
-        content_dict = parse_report_content(report.content)
+    content_dict = {
+        "main_content": report.key_contents if report else "",
+        "special_remarks": report.special_notes if report else "",
+        "follow_up": report.follow_up_actions if report else "",
+        "summary": report.summary if report else ""
+    }
         
     return MemoDetailResponse(
         message="상담 기록 상세 조회 성공",
@@ -550,13 +553,43 @@ def format_assets_to_str(asset_val):
     return f"{rest_ten_thousand:,}만"
 
 
+def run_llm_structure_memo(memo_text: str):
+    import subprocess
+    import json
+    
+    python_exe = r"c:\Users\jongh\Working_Directory\poom\POOM-AI\llm\consult_assist\.venv\Scripts\python.exe"
+    script_path = r"c:\Users\jongh\Working_Directory\poom\POOM-AI\llm\consult_assist\consult_assistant.py"
+    cwd = r"c:\Users\jongh\Working_Directory\poom\POOM-AI\llm\consult_assist"
+    
+    try:
+        process = subprocess.Popen(
+            [python_exe, script_path],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding='utf-8',
+            cwd=cwd
+        )
+        stdout, stderr = process.communicate(input=memo_text)
+        
+        if process.returncode != 0:
+            raise Exception(f"LLM 스크립트 실행 실패: {stderr}")
+            
+        return json.loads(stdout)
+    except Exception as e:
+        print(f"Subprocess 실행 에러: {e}")
+        raise e
+
+
 def generate_ai_report(
     customer_id: int,
     request,
     current_user,
     db: Session,
 ) -> GenerateReportResponse:
-    """메모어시스턴트 AI 보고서 생성"""
+    """메모어시스턴트 AI 보고서 생성 및 consultation_memo 선제 적재"""
+    from app.models.consultation import ConsultationMemo
     
     customer = db.query(Customer).filter(Customer.c_id == customer_id).first()
     if not customer:
@@ -567,50 +600,71 @@ def generate_ai_report(
         
     memo_text = request.memo or ""
     
-    # Intelligent keyword-based parser for mock LLM report generation
-    key_needs = "포트폴리오 다각화 및 종합 세테크 솔루션 수립"
-    follow_up = "맞춤형 글로벌 우량 자산 포트폴리오 제안서 작성"
-    next_consult = "상담 후 2주일 이내 재방문 예약"
-    
-    if "달러" in memo_text or "리츠" in memo_text:
-        key_needs = "달러 자산 비중 축소 / 국내 리츠 편입 검토"
-        follow_up = "리츠 상품 비교안 및 자산 분산 포트폴리오 준비"
-        next_consult = "2026.05 초순"
-    elif "채권" in memo_text:
-        key_needs = "안정적 수익 추구 및 우량 채권 편입 비중 확대"
-        follow_up = "금리 인하 대비 장기 국채 및 우량 회사채 제안서 작성"
-        next_consult = "2026.04 중순"
-    elif "리밸" in memo_text or "리밸런싱" in memo_text or "주식" in memo_text:
-        key_needs = "연초 포트폴리오 리밸런싱 및 국내 주식 저평가주 편입"
-        follow_up = "국내외 주요 성장주/배당주 분석 보고서 발송 및 자산 재배분 실행"
-        next_consult = "2026.02 중순"
-    elif "절세" in memo_text or "ISA" in memo_text or "세금" in memo_text:
-        key_needs = "연말 절세 솔루션 수립 및 중개형 ISA 활용 극대화"
-        follow_up = "ISA 계좌 한도 추가 납입 안내 및 비과세/분리과세 상품 리스트 준비"
-        next_consult = "2026.01 초순"
-    else:
-        clean_memo = memo_text.replace("\n", " ").strip()
-        if len(clean_memo) > 10:
-            preview = clean_memo[:20] + "..."
-            key_needs = f"{preview} 관련 자산 리밸런싱 니즈"
+    # 1. LLM 분석을 통한 구조화 실행 (Subprocess 연동)
+    try:
+        report_data = run_llm_structure_memo(memo_text)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"AI 보고서 생성 중 오류가 발생했습니다: {str(e)}"
+        )
+        
+    # 2. 날짜 파싱 및 consultation_memo에 원본 저장
+    try:
+        parsed_date = datetime.strptime(request.consult_date, "%Y-%m-%d %H:%M:%S")
+    except (ValueError, TypeError):
+        try:
+            parsed_date = datetime.strptime(request.consult_date.split(" ")[0], "%Y-%m-%d")
+        except (ValueError, TypeError, IndexError):
+            parsed_date = datetime.now()
             
-    formatted_assets = format_assets_to_str(customer.total_assets)
+    new_memo = ConsultationMemo(
+        consult_date=parsed_date,
+        memo=memo_text,
+        c_id=customer_id,
+        u_id=current_user.id
+    )
+    db.add(new_memo)
+    db.commit()
+    db.refresh(new_memo)
     
-    # Mask name for privacy (e.g. 강도현 -> 강OO, 김OO, etc.)
+    # 3. LLM 결과 매핑 및 줄바꿈 처리
+    def clean_item(item: str) -> str:
+        if not item:
+            return ""
+        item = item.strip()
+        # 불필요한 마크다운 리스트 기호(-, *) 제거
+        if item.startswith("-"):
+            item = item[1:].strip()
+        elif item.startswith("*"):
+            item = item[1:].strip()
+        # 숫자 번호형 리스트 접두사(예: "1. ") 제거
+        import re
+        item = re.sub(r'^\d+\.\s*', '', item)
+        return item
+
+    key_contents_list = [clean_item(x) for x in report_data.get("key_contents", []) if x]
+    special_notes_list = [clean_item(x) for x in report_data.get("special_notes", []) if x]
+    follow_up_list = [clean_item(x) for x in report_data.get("follow_up_actions", []) if x]
+    summary = report_data.get("summary", "")
+    
+    main_content = "\n".join([f"- {item}" for item in key_contents_list if item]) if key_contents_list else "-"
+    special_remarks = "\n".join([f"- {item}" for item in special_notes_list if item]) if special_notes_list else "-"
+    follow_up = "\n".join([f"- {item}" for item in follow_up_list if item]) if follow_up_list else "-"
+    
+    # 고객 이름 그대로 표시
     customer_name = customer.name
-    if customer_name and len(customer_name) >= 2:
-        customer_name = customer_name[0] + "O" * (len(customer_name) - 1)
         
     return GenerateReportResponse(
         status=200,
         message="AI 보고서 생성 성공",
         data=GenerateReportData(
+            cm_id=new_memo.cm_id,
             customer_name=customer_name or "고객",
-            grade=customer.grade or "일반",
-            total_assets=formatted_assets,
-            key_needs=key_needs,
+            main_content=main_content,
+            special_remarks=special_remarks,
             follow_up=follow_up,
-            next_consult=next_consult
+            summary=summary
         )
     )
 
@@ -621,62 +675,37 @@ def save_ai_report(
     current_user,
     db: Session,
 ) -> SaveReportResponse:
-    """AI 보고서 및 원본메모 저장"""
+    """AI 보고서 저장 (consultation_report 단독 적재)"""
     from app.models.consultation import ConsultationMemo, ConsultationReport
     from app.schemas.customer import SaveReportResponseData
-    from datetime import datetime
-
-    customer = db.query(Customer).filter(Customer.c_id == customer_id).first()
-    if not customer:
+    
+    # 전달받은 cm_id가 유효한지 검증
+    memo = db.query(ConsultationMemo).filter(ConsultationMemo.cm_id == request.cm_id).first()
+    if not memo:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="고객을 찾을 수 없습니다.",
+            detail="연관된 상담 메모를 찾을 수 없습니다.",
         )
-
-    # 1. Parse consult_date (expects "YYYY-MM-DD HH:mm:ss")
-    try:
-        parsed_date = datetime.strptime(request.consult_date, "%Y-%m-%d %H:%M:%S")
-    except ValueError:
-        try:
-            parsed_date = datetime.strptime(request.consult_date.split(" ")[0], "%Y-%m-%d")
-        except ValueError:
-            parsed_date = datetime.now()
-
-    # 2. Save raw memo in consultation_memo
-    new_memo = ConsultationMemo(
-        consult_date=parsed_date,
-        memo=request.memo,
-        c_id=customer_id,
-        u_id=current_user.id,
-    )
-    db.add(new_memo)
-    db.flush()
-
-    # 3. Format bracketed content for consultation_report
-    content_text = (
-        f"[주요 니즈]\n{request.content.key_needs}\n\n"
-        f"[후속 조치]\n{request.content.follow_up}\n\n"
-        f"[차기 상담]\n{request.content.next_consult}"
-    )
-
-    # 4. Save formatted report in consultation_report
+        
+    # consultation_report에 적재
     new_report = ConsultationReport(
-        content=content_text,
-        cm_id=new_memo.cm_id,
+        key_contents=request.content.main_content,
+        special_notes=request.content.special_remarks,
+        follow_up_actions=request.content.follow_up,
+        summary=request.content.summary or "",
+        cm_id=request.cm_id
     )
     db.add(new_report)
     db.commit()
-    db.refresh(new_memo)
     db.refresh(new_report)
-
-    # 5. Format created_at string
-    created_at_str = new_memo.consult_date.strftime("%Y-%m-%d %H:%M:%S")
-
+    
+    created_at_str = memo.consult_date.strftime("%Y-%m-%d %H:%M:%S")
+    
     return SaveReportResponse(
         status=201,
         message="보고서 저장 성공",
         data=SaveReportResponseData(
-            cm_id=new_memo.cm_id,
+            cm_id=request.cm_id,
             cr_id=new_report.cr_id,
             created_at=created_at_str,
         )
