@@ -3,12 +3,14 @@ import logging
 import time
 import asyncio
 import httpx
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from cachetools import TTLCache
 
 from app.routers import auth, admin, schedule, customer, trend, ai_todo, kpi, notification
+from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -26,49 +28,26 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-import urllib.request
-import json
-import concurrent.futures
-
-from app.config import get_settings
 settings = get_settings()
 ES_HOST = settings.ES_HOST
 
-executor = concurrent.futures.ThreadPoolExecutor(max_workers=20)
+# 5초 유지, 최대 1만 개까지만 저장 (메모리 누수 방지)
+_emp_log_dedup = TTLCache(maxsize=10000, ttl=5)
 
+async def send_log_async(es_host: str, index: str, log_data: dict):
+    """범용 비동기 ES 로그 적재 함수"""
+    async with httpx.AsyncClient(timeout=3.0) as client:
+        try:
+            await client.post(
+                f"{es_host}/{index}/_doc",
+                json=log_data,
+                headers={"bypass-tunnel-reminder": "true"}
+            )
+        except Exception as e:
+            logger.warning(f"[{index}] ES 적재 실패: {e!r}")
 
-def send_log_sync(log_data: dict):
-    """system_logs 인덱스에 API 요청 로그 적재"""
-    try:
-        req = urllib.request.Request(
-            f"{ES_HOST}/system_logs/_doc",
-            data=json.dumps(log_data).encode("utf-8"),
-            headers={"Content-Type": "application/json", "bypass-tunnel-reminder": "true"},
-            method="POST"
-        )
-        with urllib.request.urlopen(req, timeout=3.0) as response:  # 0.5s → 3.0s
-            response.read()
-    except Exception as e:
-        logger.warning(f"[system_logs] ES 적재 실패: {e!r}")
-
-
-def send_emp_log_sync(log_data: dict):
-    """employee_logs 인덱스에 직원 활동 로그 적재"""
-    try:
-        req = urllib.request.Request(
-            f"{ES_HOST}/employee_logs/_doc",
-            data=json.dumps(log_data).encode("utf-8"),
-            headers={"Content-Type": "application/json", "bypass-tunnel-reminder": "true"},
-            method="POST"
-        )
-        with urllib.request.urlopen(req, timeout=3.0) as response:  # 0.5s → 3.0s
-            response.read()
-    except Exception as e:
-        logger.warning(f"[employee_logs] ES 적재 실패: {e!r}")
-
-
-def send_emp_log_with_info(user_id: str, feature: str, timestamp: str):
-    """DB에서 PB name/branch 조회 후 employee_logs에 적재"""
+async def send_emp_log_with_info_async(user_id: str, feature: str, timestamp: str):
+    """DB에서 PB 정보 조회 후 비동기 적재"""
     name = user_id
     branch = "미지정 지점"
     try:
@@ -92,13 +71,14 @@ def send_emp_log_with_info(user_id: str, feature: str, timestamp: str):
     except Exception as e:
         logger.warning(f"[employee_logs] PB 정보 조회 실패: {e!r}")
 
-    send_emp_log_sync({
+    log_data = {
         "timestamp": timestamp,
         "user_id": user_id,
         "name": name,
         "branch": branch,
         "feature": feature,
-    })
+    }
+    await send_log_async(ES_HOST, "employee_logs", log_data)
 
 
 @app.middleware("http")
@@ -109,7 +89,6 @@ async def log_request_middleware(request, call_next):
     ms = int(process_time * 1000)
 
     path = request.url.path
-
     user_id = "system"
     is_admin = False
 
@@ -127,14 +106,12 @@ async def log_request_middleware(request, call_next):
         except Exception:
             pass
 
-    # admin 경로 및 admin 유저 요청은 로그 적재 제외
     if "news" in path or "notification" in path or "admin" in path or is_admin:
         return response
 
     if path.startswith("/api/v1") or path.startswith("/api"):
-        timestamp = datetime.now().isoformat() + "Z"
+        timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
-        # system_logs: 모든 API 요청 기록
         log_data = {
             "timestamp": timestamp,
             "api": f"[{request.method}] {path}",
@@ -145,10 +122,10 @@ async def log_request_middleware(request, call_next):
             "user_id": user_id,
         }
         print(f"[API LOG] [{request.method}] {path} - Status: {response.status_code} ({ms}ms)")
-        loop = asyncio.get_running_loop()
-        loop.run_in_executor(executor, send_log_sync, log_data)
+        
+        # 비동기 Task로 system_logs 전송 (스레드 블로킹 없음)
+        asyncio.create_task(send_log_async(ES_HOST, "system_logs", log_data))
 
-        # employee_logs: PB 유저의 기능별 활동만 기록 (name/branch 포함)
         if user_id != "system" and "admin" not in user_id.lower() and not is_admin:
             feature = None
             if "news" in path or "archive" in path or "trend" in path:
@@ -163,12 +140,13 @@ async def log_request_middleware(request, call_next):
                 feature = "캘린더"
 
             if feature:
-                loop.run_in_executor(
-                    executor, send_emp_log_with_info, user_id, feature, timestamp
-                )
+                dedup_key = f"{user_id}:{feature}"
+                # 캐시에 없으면(최근 5초 내 처음이면) 로직 실행 후 캐시에 등록
+                if dedup_key not in _emp_log_dedup:
+                    _emp_log_dedup[dedup_key] = True
+                    asyncio.create_task(send_emp_log_with_info_async(user_id, feature, timestamp))
 
     return response
-
 
 # CORS 설정
 origins = [

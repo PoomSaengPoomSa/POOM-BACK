@@ -37,6 +37,7 @@ from app.schemas.admin import (
     MLPerformanceMetrics,
     RecentActivityLog,
 )
+from datetime import timezone 
 
 logger = logging.getLogger(__name__)
 
@@ -140,8 +141,8 @@ async def get_system_dashboard(
         logger.warning(f"ES system_logs 연결 실패: {e!r}")
         es_status = "오류"
 
-    # 24시간 블록 집계
-    kst_now = datetime.utcnow() + timedelta(hours=9)
+    # 24시간 블록 집계 (타임존 정보를 제거하여 아래 local_ts와 규격을 맞춤)
+    kst_now = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=9)
     blocks_data = []
     for i in range(23, -1, -1):
         block_time = kst_now - timedelta(hours=i)
@@ -392,10 +393,118 @@ async def get_employee_dashboard(
     
 
 async def get_branch_stats(period: Optional[str], db: Session) -> BranchStatsResponse:
-    return BranchStatsResponse(stats=[], period=period)
+    # 1. DB에서 지점별 전체 직원 수 집계
+    branch_totals = {}
+    total_query = (
+        db.query(Branch.name, func.count(PbUser.u_id))
+        .outerjoin(PbUser, Branch.b_id == PbUser.branch)
+        .group_by(Branch.name)
+        .all()
+    )
+    for branch_name, count in total_query:
+        branch_totals[branch_name] = count
+    # 소속 지점이 없는 직원 예외 처리
+    branch_totals["미지정 지점"] = db.query(PbUser).filter(PbUser.branch == None).count()
+
+    # 2. ES에서 최근 24시간 동안 지점별 '고유' 접속자 수 집계
+    es_branch_actives = {}
+    try:
+        async with httpx.AsyncClient(timeout=3.0, headers={"bypass-tunnel-reminder": "true"}, http2=False) as client:
+            resp = await client.post(
+                f"{ES_HOST}/employee_logs/_search",
+                json={
+                    "size": 0,
+                    "query": {
+                        "range": {"timestamp": {"gte": "now-24h"}}
+                    },
+                    "aggs": {
+                        "by_branch": {
+                            "terms": {"field": "branch", "size": 100},
+                            "aggs": {
+                                # user_id 기준으로 중복을 제거한 접속자 수 카운트
+                                "unique_users": {"cardinality": {"field": "user_id"}}
+                            }
+                        }
+                    }
+                }
+            )
+            if resp.status_code == 200:
+                buckets = resp.json().get("aggregations", {}).get("by_branch", {}).get("buckets", [])
+                for b in buckets:
+                    es_branch_actives[b["key"]] = b["unique_users"]["value"]
+    except Exception as e:
+        logger.warning(f"ES 지점별 접속률 조회 실패: {e!r}")
+
+    # 3. DB 전체 인원과 ES 접속자 수를 비교하여 비율(%) 계산
+    stats = []
+    for branch_name, total_emp in branch_totals.items():
+        if total_emp == 0:
+            continue
+            
+        active_emp = es_branch_actives.get(branch_name, 0)
+        rate = int((active_emp / total_emp) * 100)
+        
+        # 화면에 예쁘게 보이도록 '지점', '금융센터' 글자 제거
+        clean_name = branch_name.replace("지점", "").replace("금융센터", "")
+        stats.append(BranchStats(branch_name=clean_name, access_rate=rate))
+        
+    # 접속률이 높은 순서대로 정렬
+    stats.sort(key=lambda x: x.access_rate, reverse=True)
+    
+    return BranchStatsResponse(stats=stats, period=period)
+
 
 async def get_weekly_trend(db: Session) -> WeeklyTrendResponse:
-    return WeeklyTrendResponse(trends=[])
+    # 1. 비율 계산을 위해 전체 PB 직원 수 조회
+    total_employees = db.query(Account).filter(Account.role == "user").count()
+    if total_employees == 0:
+        total_employees = 1  # 0으로 나누는 에러 방지
+
+    # 2. ES에서 최근 7일간 일별 고유 접속자 수 집계
+    trends = []
+    try:
+        async with httpx.AsyncClient(timeout=3.0, headers={"bypass-tunnel-reminder": "true"}, http2=False) as client:
+            resp = await client.post(
+                f"{ES_HOST}/employee_logs/_search",
+                json={
+                    "size": 0,
+                    "query": {
+                        "range": {"timestamp": {"gte": "now-6d/d", "lte": "now/d"}}
+                    },
+                    "aggs": {
+                        "daily": {
+                            "date_histogram": {
+                                "field": "timestamp",
+                                "calendar_interval": "day",
+                                "time_zone": "+09:00", # KST 기준 일자 분리
+                                "format": "MM.dd"
+                            },
+                            "aggs": {
+                                "unique_users": {"cardinality": {"field": "user_id"}}
+                            }
+                        }
+                    }
+                }
+            )
+            if resp.status_code == 200:
+                buckets = resp.json().get("aggregations", {}).get("daily", {}).get("buckets", [])
+                for b in buckets:
+                    date_str = b["key_as_string"]  # 예: "05.29"
+                    active_users = b["unique_users"]["value"]
+                    rate = int((active_users / total_employees) * 100)
+                    trends.append(WeeklyTrend(name=date_str, value=rate))
+    except Exception as e:
+        logger.warning(f"ES 주간 접속률 조회 실패: {e!r}")
+
+    # 데이터가 아직 안 쌓인 경우 (초기 세팅 시), 빈 날짜들을 0%로 채워줌
+    if not trends:
+        today = datetime.now(timezone.utc) + timedelta(hours=9)
+        for i in range(6, -1, -1):
+            d = today - timedelta(days=i)
+            # date -> name 으로 변경
+            trends.append(WeeklyTrend(name=d.strftime("%m.%d"), value=0))
+
+    return WeeklyTrendResponse(trends=trends)
 
 
 async def get_employee_usage(period: Optional[str], db: Session) -> EmployeeUsageResponse:
@@ -682,14 +791,19 @@ async def transfer_customers(u_id: str, request: TransferRequest, db: Session) -
     if not from_user or not to_user:
         return TransferResponse(message="인계자 또는 인수자 정보가 유효하지 않습니다.", success=False)
 
-    for cid in request.customer_ids:
-        db.query(InCharge).filter(InCharge.u_id == u_id, InCharge.c_id == cid).delete()
-        db.add(InCharge(u_id=request.receiver_u_id, c_id=cid))
-        db.add(Handover(a_id="admin1", c_id=cid, from_u_id=u_id, to_u_id=request.receiver_u_id, status="완료"))
+    try:
+        for cid in request.customer_ids:
+            db.query(InCharge).filter(InCharge.u_id == u_id, InCharge.c_id == cid).delete()
+            db.add(InCharge(u_id=request.receiver_u_id, c_id=cid))
+            db.add(Handover(a_id="admin1", c_id=cid, from_u_id=u_id, to_u_id=request.receiver_u_id, status="완료"))
 
-    if db.query(InCharge).filter(InCharge.u_id == u_id).count() == 0:
-        from_user.branch = request.target_branch
-        from_user.status = "재직"
+        if db.query(InCharge).filter(InCharge.u_id == u_id).count() == 0:
+            from_user.branch = request.target_branch
+            from_user.status = "재직"
 
-    db.commit()
-    return TransferResponse(message="인수인계 및 지점 발령 처리가 성공적으로 완료되었습니다.", success=True)
+        db.commit()
+        return TransferResponse(message="인수인계 및 지점 발령 처리가 성공적으로 완료되었습니다.", success=True)
+    except Exception as e:
+        db.rollback()
+        logger.error(f"고객 이관 중 오류 발생: {e!r}")
+        return TransferResponse(message="처리 중 오류가 발생했습니다.", success=False)
