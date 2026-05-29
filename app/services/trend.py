@@ -103,77 +103,171 @@ async def get_trend_dashboard(current_user, db: Session) -> TrendDashboardRespon
         "it": it_news,
     }
 
-    # 2. 금값 및 부동산 지표 조회
-    def get_latest_stats(indicator_type: str, default_today: float, default_yesterday: float, default_tomorrow: float):
-        history = db.query(EconomicIndicatorHistory).filter(EconomicIndicatorHistory.type == indicator_type).order_by(EconomicIndicatorHistory.recorded_at.desc()).limit(2).all()
+    # 2. 금값 및 부동산 지표 동적 조회
+    from sqlalchemy import text
+    
+    # A. 금값 데이터 쿼리
+    gold_yesterday, gold_today = None, None
+    try:
+        g_hist_query = text("SELECT value FROM economic_indicator_history WHERE type = 'gold' ORDER BY recorded_at DESC LIMIT 2")
+        g_res = db.execute(g_hist_query).fetchall()
+        if len(g_res) >= 2:
+            gold_today = float(g_res[0][0])
+            gold_yesterday = float(g_res[1][0])
+    except Exception as e:
+        logger.warning(f"Failed to fetch gold history: {e}")
         
-        if len(history) >= 2:
-            today_val = float(history[0].value)
-            yesterday_val = float(history[1].value)
-        elif len(history) == 1:
-            today_val = float(history[0].value)
-            yesterday_val = default_yesterday
-        else:
-            today_val = default_today
-            yesterday_val = default_yesterday
-
-        pred = db.query(EconomicIndicatorPrediction).filter(EconomicIndicatorPrediction.type == indicator_type).order_by(EconomicIndicatorPrediction.predicted_date.asc()).first()
-        tomorrow_val = float(pred.predicted_value) if pred else default_tomorrow
-
-        if yesterday_val != 0:
-            change_rate = round(((today_val - yesterday_val) / yesterday_val) * 100, 1)
-        else:
-            change_rate = 0.0
-
-        if today_val > yesterday_val:
-            direction = "up"
-        elif today_val < yesterday_val:
-            direction = "down"
-        else:
-            direction = "flat"
-
-        return {
-            "yesterday": yesterday_val,
-            "today": today_val,
-            "tomorrow": tomorrow_val,
-            "changeRate": change_rate,
-            "changeDirection": direction
-        }
-
-    gold_data = get_latest_stats("gold", 95.0, 83.0, 85.0)
-    re_data = get_latest_stats("real_estate", 100.3, 100.4, 100.2)
-
-    # 3. 기준금리 조회
-    br_history = db.query(EconomicIndicatorHistory).filter(EconomicIndicatorHistory.type == "base_rate").order_by(EconomicIndicatorHistory.recorded_at.desc()).limit(30).all()
+    gold_tomorrow = None
+    prob_rise_val, prob_fall_val = None, None
+    pred_text_gold = None
+    try:
+        g_pred_query = text("SELECT prob_rise, prob_fall FROM gold_predictions ORDER BY created_at DESC LIMIT 1")
+        g_pred_res = db.execute(g_pred_query).fetchone()
+        if g_pred_res:
+            raw_rise = float(g_pred_res[0])
+            raw_fall = float(g_pred_res[1])
+            prob_rise_val = round(raw_rise * 100) if raw_rise < 1.0 else round(raw_rise)
+            prob_fall_val = round(raw_fall * 100) if raw_fall < 1.0 else round(raw_fall)
+            # 100% 보정
+            total_prob = prob_rise_val + prob_fall_val
+            if total_prob > 0:
+                prob_rise_val = round((prob_rise_val / total_prob) * 100)
+                prob_fall_val = 100 - prob_rise_val
+                
+            if prob_rise_val > prob_fall_val:
+                pred_text_gold = "상승 가능성 높음"
+            elif prob_rise_val < prob_fall_val:
+                pred_text_gold = "하락 가능성 높음"
+            else:
+                pred_text_gold = "상승/하락 가능성 동률"
+                
+            if gold_today is not None:
+                gold_tomorrow = round(gold_today * (1 + (prob_rise_val - prob_fall_val)/1000), 2)
+    except Exception as e:
+        logger.warning(f"Failed to fetch gold predictions: {e}")
+        
+    gold_change_rate = None
+    gold_dir = "flat"
+    if gold_today is not None and gold_yesterday is not None:
+        gold_change_rate = round(((gold_today - gold_yesterday) / gold_yesterday) * 100, 1) if gold_yesterday != 0 else 0.0
+        gold_dir = "up" if gold_today > gold_yesterday else "down" if gold_today < gold_yesterday else "flat"
     
-    this_month_val = 2.5
-    last_month_val = 2.0
+    gold_data = {
+        "yesterday": gold_yesterday,
+        "today": gold_today,
+        "tomorrow": gold_tomorrow,
+        "changeRate": gold_change_rate,
+        "changeDirection": gold_dir,
+        "probRise": prob_rise_val,
+        "probFall": prob_fall_val,
+        "predictionText": pred_text_gold
+    }
+
+    # B. 부동산 데이터 쿼리
+    re_yesterday, re_today = None, None
+    try:
+        re_hist_query = text("SELECT house_price_idx FROM ml_realestate_preprocessed ORDER BY date_ym DESC LIMIT 2")
+        re_res = db.execute(re_hist_query).fetchall()
+        if len(re_res) >= 2:
+            re_today = float(re_res[0][0])
+            re_yesterday = float(re_res[1][0])
+    except Exception as e:
+        logger.warning(f"Failed to fetch realestate history: {e}")
+        
+    re_tomorrow = None
+    re_change_rate = None
+    re_dir = "flat"
+    try:
+        re_pred_query = text("SELECT predicted_value, predicted_index FROM realestate_predictions ORDER BY created_at DESC LIMIT 1")
+        re_pred_res = db.execute(re_pred_query).fetchone()
+        if re_pred_res:
+            pred_rate = float(re_pred_res[0])
+            pred_index = re_pred_res[1]
+            
+            # 변화율은 예측된 변화율 자체를 그대로 사용
+            re_change_rate = round(pred_rate, 2)
+            re_dir = "up" if pred_rate > 0 else "down" if pred_rate < 0 else "flat"
+            
+            # predicted_index 컬럼이 DB에 있으면 이를 그대로 쓰고, 없으면 실시간 역산으로 폴백
+            if pred_index is not None:
+                re_tomorrow = round(float(pred_index), 2)
+            elif re_today is not None:
+                re_tomorrow = round(re_today * (1 + pred_rate / 100), 2)
+    except Exception as e:
+        logger.warning(f"Failed to fetch realestate predictions: {e}")
     
-    if br_history:
-        this_month_val = float(br_history[0].value)
-        different_vals = [float(h.value) for h in br_history if float(h.value) != this_month_val]
-        if different_vals:
-            last_month_val = different_vals[0]
-        else:
-            last_month_val = this_month_val
+    re_data = {
+        "yesterday": re_yesterday,
+        "today": re_today,
+        "tomorrow": re_tomorrow,
+        "changeRate": re_change_rate,
+        "changeDirection": re_dir
+    }
 
-    br_pred = db.query(EconomicIndicatorPrediction).filter(EconomicIndicatorPrediction.type == "base_rate").order_by(EconomicIndicatorPrediction.predicted_date.asc()).first()
-    next_month_val = float(br_pred.predicted_value) if br_pred else 2.0
-
-    br_change_rate = round(this_month_val - last_month_val, 2)
-    if this_month_val > last_month_val:
-        br_direction = "up"
-    elif this_month_val < last_month_val:
-        br_direction = "down"
-    else:
-        br_direction = "flat"
-
+    # C. 기준금리 데이터 쿼리
+    br_last_month, br_this_month = None, None
+    try:
+        br_hist_query = text("SELECT value FROM economic_indicator_history WHERE type = 'base_rate' ORDER BY recorded_at DESC LIMIT 2")
+        br_res = db.execute(br_hist_query).fetchall()
+        if len(br_res) >= 2:
+            br_this_month = float(br_res[0][0])
+            br_last_month = float(br_res[1][0])
+    except Exception as e:
+        logger.warning(f"Failed to fetch baserate history: {e}")
+        
+    br_next_month = None
+    prob_cut_val, prob_freeze_val, prob_hike_val = None, None, None
+    pred_text_br = None
+    try:
+        br_pred_query = text("SELECT prob_cut, prob_freeze, prob_hike FROM baserate_predictions ORDER BY created_at DESC LIMIT 1")
+        br_pred_res = db.execute(br_pred_query).fetchone()
+        if br_pred_res:
+            raw_cut = float(br_pred_res[0])
+            raw_freeze = float(br_pred_res[1])
+            raw_hike = float(br_pred_res[2])
+            prob_cut_val = round(raw_cut * 100) if raw_cut < 1.0 else round(raw_cut)
+            prob_freeze_val = round(raw_freeze * 100) if raw_freeze < 1.0 else round(raw_freeze)
+            prob_hike_val = round(raw_hike * 100) if raw_hike < 1.0 else round(raw_hike)
+            
+            # 100% 보정
+            total_prob = prob_cut_val + prob_freeze_val + prob_hike_val
+            if total_prob > 0:
+                prob_cut_val = round((prob_cut_val / total_prob) * 100)
+                prob_freeze_val = round((prob_freeze_val / total_prob) * 100)
+                prob_hike_val = 100 - prob_cut_val - prob_freeze_val
+                
+            max_prob = max(prob_cut_val, prob_freeze_val, prob_hike_val)
+            if max_prob == prob_cut_val:
+                pred_text_br = "인하 가능성 높음"
+                if br_this_month is not None:
+                    br_next_month = br_this_month - 0.25
+            elif max_prob == prob_freeze_val:
+                pred_text_br = "동결 가능성 높음"
+                if br_this_month is not None:
+                    br_next_month = br_this_month
+            else:
+                pred_text_br = "인상 가능성 높음"
+                if br_this_month is not None:
+                    br_next_month = br_this_month + 0.25
+    except Exception as e:
+        logger.warning(f"Failed to fetch baserate predictions: {e}")
+        
+    br_change_rate = None
+    br_dir = "flat"
+    if br_this_month is not None and br_last_month is not None:
+        br_change_rate = round(br_this_month - br_last_month, 2)
+        br_dir = "up" if br_this_month > br_last_month else "down" if br_this_month < br_last_month else "flat"
+    
     br_data = {
-        "lastMonth": last_month_val,
-        "thisMonth": this_month_val,
-        "nextMonth": next_month_val,
+        "lastMonth": br_last_month,
+        "thisMonth": br_this_month,
+        "nextMonth": br_next_month,
         "changeRate": br_change_rate,
-        "changeDirection": br_direction
+        "changeDirection": br_dir,
+        "probCut": prob_cut_val,
+        "probFreeze": prob_freeze_val,
+        "probHike": prob_hike_val,
+        "predictionText": pred_text_br
     }
 
     return {
@@ -382,21 +476,45 @@ async def get_indicator_latest(
     }
     label_ko, label_en = label_map[type]
     
-    history = db.query(EconomicIndicatorHistory).filter(
-        EconomicIndicatorHistory.type == type
-    ).order_by(EconomicIndicatorHistory.recorded_at.desc()).limit(2).all()
+    from sqlalchemy import text
     
-    if len(history) < 2:
-        raise HTTPException(status_code=404, detail="해당 지표 데이터 없음")
+    today_val = 0.0
+    yesterday_val = 0.0
+    today_rec_at = ""
+    yesterday_rec_at = ""
+    
+    if type == "real_estate":
+        try:
+            re_hist_query = text("SELECT house_price_idx, date_ym FROM ml_realestate_preprocessed ORDER BY date_ym DESC LIMIT 2")
+            re_res = db.execute(re_hist_query).fetchall()
+            if len(re_res) >= 2:
+                today_val = float(re_res[0][0])
+                yesterday_val = float(re_res[1][0])
+                ym_today = str(re_res[0][1])
+                ym_yesterday = str(re_res[1][1])
+                today_rec_at = f"{ym_today[:4]}-{ym_today[4:6]}-01T00:00:00Z"
+                yesterday_rec_at = f"{ym_yesterday[:4]}-{ym_yesterday[4:6]}-01T00:00:00Z"
+            else:
+                raise HTTPException(status_code=404, detail="해당 지표 데이터 없음")
+        except Exception as e:
+            logger.warning(f"Failed to fetch realestate history in get_indicator_latest: {e}")
+            raise HTTPException(status_code=404, detail="해당 지표 데이터 없음")
+    else:
+        history = db.query(EconomicIndicatorHistory).filter(
+            EconomicIndicatorHistory.type == type
+        ).order_by(EconomicIndicatorHistory.recorded_at.desc()).limit(2).all()
         
-    today_row = history[0]
-    yesterday_row = history[1]
-    
-    today_val = float(today_row.value)
-    yesterday_val = float(yesterday_row.value)
-    
-    today_rec_at = today_row.recorded_at.strftime("%Y-%m-%dT%H:%M:%SZ")
-    yesterday_rec_at = yesterday_row.recorded_at.strftime("%Y-%m-%dT%H:%M:%SZ")
+        if len(history) < 2:
+            raise HTTPException(status_code=404, detail="해당 지표 데이터 없음")
+            
+        today_row = history[0]
+        yesterday_row = history[1]
+        
+        today_val = float(today_row.value)
+        yesterday_val = float(yesterday_row.value)
+        
+        today_rec_at = today_row.recorded_at.strftime("%Y-%m-%dT%H:%M:%SZ")
+        yesterday_rec_at = yesterday_row.recorded_at.strftime("%Y-%m-%dT%H:%M:%SZ")
     
     if type == "base_rate":
         today_change = round(today_val - yesterday_val, 2)
@@ -410,27 +528,84 @@ async def get_indicator_latest(
     else:
         today_dir = "flat"
         
-    pred = db.query(EconomicIndicatorPrediction).filter(
-        EconomicIndicatorPrediction.type == type
-    ).order_by(EconomicIndicatorPrediction.predicted_date.asc()).first()
-    
     tomorrow_val = None
     tomorrow_change = None
     tomorrow_dir = "flat"
+    prob_rise_val, prob_fall_val = None, None
+    prob_cut_val, prob_freeze_val, prob_hike_val = None, None, None
+    pred_text = None
     
-    if pred:
-        tomorrow_val = float(pred.predicted_value)
-        if type == "base_rate":
-            tomorrow_change = round(tomorrow_val - today_val, 2)
-        else:
-            tomorrow_change = round(((tomorrow_val - today_val) / today_val) * 100, 1)
+    if type == "gold":
+        try:
+            g_pred_query = text("SELECT prob_rise, prob_fall FROM gold_predictions ORDER BY created_at DESC LIMIT 1")
+            g_pred_res = db.execute(g_pred_query).fetchone()
+            if g_pred_res:
+                raw_rise = float(g_pred_res[0])
+                raw_fall = float(g_pred_res[1])
+                prob_rise_val = round(raw_rise * 100) if raw_rise < 1.0 else round(raw_rise)
+                prob_fall_val = round(raw_fall * 100) if raw_fall < 1.0 else round(raw_fall)
+                total_prob = prob_rise_val + prob_fall_val
+                if total_prob > 0:
+                    prob_rise_val = round((prob_rise_val / total_prob) * 100)
+                    prob_fall_val = 100 - prob_rise_val
+                
+                pred_text = "상승 가능성 높음" if prob_rise_val > prob_fall_val else ("하락 가능성 높음" if prob_rise_val < prob_fall_val else "상승/하락 가능성 동률")
+                tomorrow_val = round(today_val * (1 + (prob_rise_val - prob_fall_val)/1000), 2)
+                tomorrow_change = round(((tomorrow_val - today_val) / today_val) * 100, 1) if today_val != 0 else 0.0
+                tomorrow_dir = "up" if tomorrow_val > today_val else "down" if tomorrow_val < today_val else "flat"
+        except Exception as e:
+            logger.warning(f"Failed to fetch gold predictions in latest: {e}")
             
-        if tomorrow_val > today_val:
-            tomorrow_dir = "up"
-        elif tomorrow_val < today_val:
-            tomorrow_dir = "down"
-        else:
-            tomorrow_dir = "flat"
+    elif type == "base_rate":
+        try:
+            br_pred_query = text("SELECT prob_cut, prob_freeze, prob_hike FROM baserate_predictions ORDER BY created_at DESC LIMIT 1")
+            br_pred_res = db.execute(br_pred_query).fetchone()
+            if br_pred_res:
+                raw_cut = float(br_pred_res[0])
+                raw_freeze = float(br_pred_res[1])
+                raw_hike = float(br_pred_res[2])
+                prob_cut_val = round(raw_cut * 100) if raw_cut < 1.0 else round(raw_cut)
+                prob_freeze_val = round(raw_freeze * 100) if raw_freeze < 1.0 else round(raw_freeze)
+                prob_hike_val = round(raw_hike * 100) if raw_hike < 1.0 else round(raw_hike)
+                total_prob = prob_cut_val + prob_freeze_val + prob_hike_val
+                if total_prob > 0:
+                    prob_cut_val = round((prob_cut_val / total_prob) * 100)
+                    prob_freeze_val = round((prob_freeze_val / total_prob) * 100)
+                    prob_hike_val = 100 - prob_cut_val - prob_freeze_val
+                
+                max_prob = max(prob_cut_val, prob_freeze_val, prob_hike_val)
+                if max_prob == prob_cut_val:
+                    tomorrow_val = today_val - 0.25
+                    pred_text = "인하 가능성 높음"
+                elif max_prob == prob_freeze_val:
+                    tomorrow_val = today_val
+                    pred_text = "동결 가능성 높음"
+                else:
+                    tomorrow_val = today_val + 0.25
+                    pred_text = "인상 가능성 높음"
+                    
+                tomorrow_change = round(tomorrow_val - today_val, 2)
+                tomorrow_dir = "up" if tomorrow_val > today_val else "down" if tomorrow_val < today_val else "flat"
+        except Exception as e:
+            logger.warning(f"Failed to fetch baserate predictions in latest: {e}")
+            
+    elif type == "real_estate":
+        try:
+            re_pred_query = text("SELECT predicted_value, predicted_index FROM realestate_predictions ORDER BY created_at DESC LIMIT 1")
+            re_pred_res = db.execute(re_pred_query).fetchone()
+            if re_pred_res:
+                pred_rate = float(re_pred_res[0])
+                pred_index = re_pred_res[1]
+                
+                if pred_index is not None:
+                    tomorrow_val = round(float(pred_index), 2)
+                else:
+                    tomorrow_val = round(today_val * (1 + pred_rate / 100), 2)
+                    
+                tomorrow_change = round(pred_rate, 2)
+                tomorrow_dir = "up" if pred_rate > 0 else "down" if pred_rate < 0 else "flat"
+        except Exception as e:
+            logger.warning(f"Failed to fetch realestate predictions in latest: {e}")
             
     return {
         "type": type,
@@ -449,7 +624,13 @@ async def get_indicator_latest(
         "tomorrow": {
             "value": tomorrow_val,
             "changeRate": tomorrow_change,
-            "direction": tomorrow_dir
+            "direction": tomorrow_dir,
+            "probRise": prob_rise_val,
+            "probFall": prob_fall_val,
+            "probCut": prob_cut_val,
+            "probFreeze": prob_freeze_val,
+            "probHike": prob_hike_val,
+            "predictionText": pred_text
         }
     }
 
@@ -483,6 +664,43 @@ async def get_indicator_history(
     if granularity not in ["daily", "weekly", "monthly"]:
         raise HTTPException(status_code=400, detail="from / to 누락, 날짜 형식 오류, 허용되지 않는 granularity")
         
+    if type == "real_estate":
+        from sqlalchemy import text
+        try:
+            re_hist_query = text("SELECT date_ym, house_price_idx FROM ml_realestate_preprocessed ORDER BY date_ym DESC LIMIT 12")
+            re_res = db.execute(re_hist_query).fetchall()
+            
+            if not re_res:
+                raise HTTPException(status_code=404, detail="해당 지표 데이터 없음")
+                
+            re_res_sorted = sorted(re_res, key=lambda x: x[0])
+            
+            series = []
+            for row in re_res_sorted:
+                ym_str = str(row[0])
+                formatted_date = f"{ym_str[:4]}-{ym_str[4:6]}-01"
+                series.append({
+                    "date": formatted_date,
+                    "value": float(row[1])
+                })
+                
+            vals = [s["value"] for s in series]
+            
+            return {
+                "type": type,
+                "granularity": granularity or "monthly",
+                "source": "ECOS",
+                "series": series,
+                "stats": {
+                    "min": round(min(vals), 2),
+                    "max": round(max(vals), 2),
+                    "avg": round(sum(vals) / len(vals), 2)
+                }
+            }
+        except Exception as e:
+            logger.warning(f"Failed to fetch realestate history in get_indicator_history: {e}")
+            raise HTTPException(status_code=404, detail="해당 지표 데이터 없음")
+
     to_dt_end = to_dt + datetime.timedelta(days=1)
     
     history_rows = db.query(EconomicIndicatorHistory).filter(
@@ -565,38 +783,92 @@ async def get_indicator_prediction(
     if type not in ["gold", "real_estate", "base_rate"]:
         raise HTTPException(status_code=400, detail="허용되지 않는 type 값")
         
-    h_val = horizon if horizon is not None else 7
-    preds = db.query(EconomicIndicatorPrediction).filter(
-        EconomicIndicatorPrediction.type == type
-    ).order_by(EconomicIndicatorPrediction.predicted_date.asc()).limit(h_val).all()
+    from sqlalchemy import text
     
-    predictions_list = [
-        {
-            "date": p.predicted_date.strftime("%Y-%m-%d"),
-            "value": float(p.predicted_value),
-            "lower": float(p.confidence_lower) if p.confidence_lower is not None else None,
-            "upper": float(p.confidence_upper) if p.confidence_upper is not None else None
-        }
-        for p in preds
-    ]
+    h_val = horizon if horizon is not None else 7
+    predictions_list = []
+    db_run_id = None
+    
+    if type == "real_estate":
+        try:
+            re_ym_query = text("SELECT date_ym FROM ml_realestate_preprocessed ORDER BY date_ym DESC LIMIT 1")
+            re_ym_res = db.execute(re_ym_query).fetchone()
+            
+            next_month_str = ""
+            if re_ym_res:
+                ym_str = str(re_ym_res[0])
+                year = int(ym_str[:4])
+                month = int(ym_str[4:6])
+                if month == 12:
+                    next_year = year + 1
+                    next_month = 1
+                else:
+                    next_year = year
+                    next_month = month + 1
+                next_month_str = f"{next_year}-{next_month:02d}-01"
+            else:
+                next_month_str = (datetime.datetime.utcnow() + datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+                
+            re_pred_query = text("SELECT run_id, predicted_index FROM realestate_predictions ORDER BY created_at DESC LIMIT 1")
+            re_pred_res = db.execute(re_pred_query).fetchone()
+            
+            if re_pred_res:
+                db_run_id = re_pred_res[0]
+                pred_index = re_pred_res[1]
+                predictions_list = [
+                    {
+                        "date": next_month_str,
+                        "value": float(pred_index) if pred_index is not None else None,
+                        "lower": None,
+                        "upper": None
+                    }
+                ]
+            else:
+                raise HTTPException(status_code=404, detail="해당 지표 데이터 없음")
+        except Exception as e:
+            logger.warning(f"Failed to fetch realestate predictions in get_indicator_prediction: {e}")
+            raise HTTPException(status_code=404, detail="해당 지표 데이터 없음")
+    else:
+        preds = db.query(EconomicIndicatorPrediction).filter(
+            EconomicIndicatorPrediction.type == type
+        ).order_by(EconomicIndicatorPrediction.predicted_date.asc()).limit(h_val).all()
+        
+        predictions_list = [
+            {
+                "date": p.predicted_date.strftime("%Y-%m-%d"),
+                "value": float(p.predicted_value),
+                "lower": float(p.confidence_lower) if p.confidence_lower is not None else None,
+                "upper": float(p.confidence_upper) if p.confidence_upper is not None else None
+            }
+            for p in preds
+        ]
+        
+        try:
+            pred_tbl = "gold_predictions" if type == "gold" else "baserate_predictions"
+            run_id_query = text(f"SELECT run_id FROM {pred_tbl} ORDER BY created_at DESC LIMIT 1")
+            run_id_res = db.execute(run_id_query).fetchone()
+            if run_id_res:
+                db_run_id = run_id_res[0]
+        except Exception:
+            pass
         
     mlflow_map = {
         "gold": {
-            "run_id": "3f2a1b9c4d5e6f7a8b9c0d1e",
+            "run_id": db_run_id if db_run_id else None,
             "model_name": "gold_price_predictor",
             "model_version": "12",
             "stage": "Production",
             "source": "ECOS, FRED"
         },
         "real_estate": {
-            "run_id": "7c1b2c3d4e5f6a7b8c9d0e1f",
+            "run_id": db_run_id if db_run_id else None,
             "model_name": "realestate_index_predictor",
             "model_version": "8",
             "stage": "Production",
             "source": "ECOS"
         },
         "base_rate": {
-            "run_id": "5d6e7f8a9b0c1d2e3f4a5b6c",
+            "run_id": db_run_id if db_run_id else None,
             "model_name": "baserate_policy_predictor",
             "model_version": "15",
             "stage": "Production",
@@ -631,6 +903,17 @@ async def get_indicator_contribution(
     if type not in ["gold", "real_estate", "base_rate"]:
         raise HTTPException(status_code=400, detail="허용되지 않는 type 값")
         
+    from sqlalchemy import text
+    db_run_id = None
+    try:
+        pred_tbl = "gold_predictions" if type == "gold" else ("baserate_predictions" if type == "base_rate" else "realestate_predictions")
+        run_id_query = text(f"SELECT run_id FROM {pred_tbl} ORDER BY created_at DESC LIMIT 1")
+        run_id_res = db.execute(run_id_query).fetchone()
+        if run_id_res:
+            db_run_id = run_id_res[0]
+    except Exception:
+        pass
+
     contribs = db.query(EconomicIndicatorContribution).filter(
         EconomicIndicatorContribution.type == type
     ).order_by(EconomicIndicatorContribution.weight.desc()).all()
@@ -665,19 +948,19 @@ async def get_indicator_contribution(
         
     mlflow_map = {
         "gold": {
-            "run_id": "3f2a1b9c4d5e6f7a8b9c0d1e",
+            "run_id": db_run_id if db_run_id else None,
             "model_name": "gold_price_predictor",
             "model_version": "12",
             "stage": "Production"
         },
         "real_estate": {
-            "run_id": "7c1b2c3d4e5f6a7b8c9d0e1f",
+            "run_id": db_run_id if db_run_id else None,
             "model_name": "realestate_index_predictor",
             "model_version": "8",
             "stage": "Production"
         },
         "base_rate": {
-            "run_id": "5d6e7f8a9b0c1d2e3f4a5b6c",
+            "run_id": db_run_id if db_run_id else None,
             "model_name": "baserate_policy_predictor",
             "model_version": "15",
             "stage": "Production"
@@ -757,52 +1040,20 @@ async def get_report_status(
             "completedAt": None
         }
 
-    # pending / running 상태: 경과 시간 기반으로 전이
+    # pending / running 상태: 경과 시간 기반 전이 (하드코딩 보고서 내용 없음)
+    # 실제 보고서는 train.py 실행 시 자동 생성되어 DB에 status='done'으로 저장됩니다.
     elapsed = (datetime.datetime.utcnow() - report.created_at).total_seconds()
 
-    if elapsed > 20:
-        if type == "gold":
-            content = (
-                "### [금 가격 전망 분석 리포트]\n\n"
-                "최근 글로벌 금 가격은 안전자산 선호 심리와 금리 인하 기대감에 힘입어 상승 랠리를 이어가고 있습니다.\n\n"
-                "**1. 연준 통화정책 완화 기조 및 달러 약세**\n"
-                "미국 연방준비제도(Fed)의 기준금리 인하 전망에 따른 실질 금리 하락과 미 달러화의 상대적 약세는 이자가 발생하지 않는 자산인 금의 투자 매력도를 극대화하고 있습니다.\n\n"
-                "**2. 지정학적 리스크 지속**\n"
-                "중동 지역의 긴장 지속과 글로벌 공급망 다변화 과정에서의 지정학적 불확실성이 안전자산인 금에 대한 강력한 수요를 창출하고 있습니다.\n\n"
-                "**3. 중앙은행의 금 매입 증가**\n"
-                "중국, 인도 등 신흥국 중앙은행들을 필두로 한 글로벌 외환보유고 다변화 차원의 지속적인 금 매수세가 장기적인 가격 지지선 역할을 담당하고 있습니다."
-            )
-        elif type == "real_estate":
-            content = (
-                "### [부동산 가격지수 분석 리포트]\n\n"
-                "주택 시장은 금리 인하 기대감과 고분양가 흐름이 공존하며 지역별 양극화 현상이 뚜렷하게 관찰되고 있습니다.\n\n"
-                "**1. 서울 및 수도권 핵심지 거래 활성화**\n"
-                "주요 선호 지역 및 신축 대단지를 중심으로 실수요자의 거래가 소폭 회복되면서 하방 압력이 지지되고 가격 반등을 주도하고 있습니다.\n\n"
-                "**2. 대출 규제와 고금리 부담의 잔존**\n"
-                "스트레스 DSR 규제 강화와 여전히 높은 주택담보대출 금리로 인해 차입을 통한 대규모 추격 매수는 제한적이며 거래량이 급격히 폭증하기는 어렵습니다.\n\n"
-                "**3. 지방 공급 과잉과 양극화 심화**\n"
-                "지방의 미분양 물량 적체 지속과 인구 감소 우려로 인해 서울 수도권과 지방 간의 양극화 편차가 더욱 심화되는 장세를 보이고 있습니다."
-            )
-        else:
-            content = (
-                "### [기준 금리 분석 리포트]\n\n"
-                "한국 기준금리는 2.50%까지 단계적 인하가 전망되며, 물가 안정화 추세에 따라 하반기부터 통화정책 전환 가능성이 제기됩니다.\n\n"
-                "**1. 물가상승률(CPI) 하향 안정**\n"
-                "최근 소비자물가 지표가 물가 안정 목표치인 2.0%대에 안착함에 따라 통화 긴축을 지속해야 할 객관적 압박이 대폭 완화되었습니다.\n\n"
-                "**2. 경기 부양 필요성 확대**\n"
-                "내수 침체와 건설 투자 위축이 가속화되면서 경제 연착륙 유도를 위한 하반기 금리 인하 개시 가능성이 매우 강력해졌습니다."
-            )
-
-        report.status = "done"
-        report.content = content
+    if elapsed > 60:
+        # 60초 이상 경과해도 done이 안 되면 실패 처리
+        report.status = "failed"
         db.commit()
-
         return {
             "reportId": report.report_id,
-            "status": "done",
-            "progress": 100,
-            "failedReason": None,
-            "completedAt": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+            "status": "failed",
+            "progress": 0,
+            "failedReason": "보고서 생성 시간 초과. train.py 실행 후 자동 생성됩니다.",
+            "completedAt": None
         }
 
     elif elapsed > 8:
@@ -811,7 +1062,7 @@ async def get_report_status(
         return {
             "reportId": report.report_id,
             "status": "running",
-            "progress": 60,
+            "progress": int(elapsed / 60 * 100),
             "failedReason": None,
             "completedAt": None
         }
@@ -820,7 +1071,7 @@ async def get_report_status(
         return {
             "reportId": report.report_id,
             "status": "pending",
-            "progress": 30,
+            "progress": 10,
             "failedReason": None,
             "completedAt": None
         }
