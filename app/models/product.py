@@ -64,7 +64,7 @@ class ProductMatching(Base):
     matching_id = Column(Integer, primary_key=True, autoincrement=True)
     pd_id = Column(Integer, ForeignKey("product.pd_id"), nullable=False)
     c_id = Column(Integer, ForeignKey("customer.c_id"), nullable=False)
-    is_suitable = Column(Boolean, nullable=False)
+    is_suitable = Column(Integer, nullable=False)
     reason = Column(Text, nullable=False)
     created_date = Column(TIMESTAMP, nullable=False, default=func.now())
 

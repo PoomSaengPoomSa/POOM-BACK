@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from app.database import get_db
@@ -182,12 +182,13 @@ def generate_ai_report(
 def save_ai_report(
     customer_id: int,
     request: SaveReportRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     """AI 보고서 및 원본메모 저장"""
     return customer_service.save_ai_report(
-        customer_id, request, current_user, db
+        customer_id, request, current_user, db, background_tasks
     )
 
 
