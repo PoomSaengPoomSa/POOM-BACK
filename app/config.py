@@ -4,8 +4,8 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings
 
-# 백엔드 루트 폴더(app/의 부모 폴더)에 있는 .env 파일의 절대 경로를 계산합니다.
-ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
+# 백엔드 루트 폴더(app/의 부모 폴더)의 상위 폴더(최상위 poom 폴더)에 있는 .env 파일의 절대 경로를 계산합니다.
+ENV_PATH = Path(__file__).resolve().parent.parent.parent / ".env"
 
 
 class Settings(BaseSettings):
@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     model_config = {
         "env_file": str(ENV_PATH),
         "env_file_encoding": "utf-8",
+        "extra": "ignore",
     }
 
 
