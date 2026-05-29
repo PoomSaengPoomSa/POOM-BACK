@@ -2,7 +2,7 @@ from typing import Optional, List
 from datetime import datetime
 from sqlalchemy import extract
 from sqlalchemy.orm import Session, joinedload
-from fastapi import HTTPException, status
+from fastapi import HTTPException, status, BackgroundTasks
 from app.models.customer import Customer
 from app.models.in_charge import InCharge
 from app.models.schedule import Schedule
@@ -670,11 +670,40 @@ def generate_ai_report(
     )
 
 
+def run_customer_feature_agent(customer_id: int):
+    """POOM-AI 고객 특징 추출 및 상품 매칭 에이전트(run_feature.py)를 백그라운드 서브프로세스로 실행"""
+    import subprocess
+    import os
+    
+    python_exe = r"c:\Users\jongh\Working_Directory\poom\POOM-AI\.venv\Scripts\python.exe"
+    script_path = r"c:\Users\jongh\Working_Directory\poom\POOM-AI\agent\customer\run_feature.py"
+    cwd = r"c:\Users\jongh\Working_Directory\poom\POOM-AI\agent\customer"
+    
+    try:
+        print(f"[Background] Starting Customer Feature Agent for Customer ID: {customer_id}")
+        process = subprocess.Popen(
+            [python_exe, script_path, "--c_id", str(customer_id)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding='utf-8',
+            cwd=cwd
+        )
+        stdout, stderr = process.communicate()
+        if process.returncode != 0:
+            print(f"[-] Customer Feature Agent 실행 실패 (customer_id: {customer_id}): {stderr}")
+        else:
+            print(f"[+] Customer Feature Agent 실행 완료 (customer_id: {customer_id}):\n{stdout}")
+    except Exception as e:
+        print(f"[-] Customer Feature Agent subprocess 실행 중 에러 발생: {e}")
+
+
 def save_ai_report(
     customer_id: int,
     request: SaveReportRequest,
     current_user,
     db: Session,
+    background_tasks: BackgroundTasks = None,
 ) -> SaveReportResponse:
     """AI 보고서 저장 (consultation_report 단독 적재)"""
     from app.models.consultation import ConsultationMemo, ConsultationReport
@@ -700,6 +729,10 @@ def save_ai_report(
     db.commit()
     db.refresh(new_report)
     
+    # DB 트랜잭션 완료 후 백그라운드 태스크로 분석 에이전트 구동
+    if background_tasks:
+        background_tasks.add_task(run_customer_feature_agent, customer_id)
+        
     created_at_str = memo.consult_date.strftime("%Y-%m-%d %H:%M:%S")
     
     return SaveReportResponse(

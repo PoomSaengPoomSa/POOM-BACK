@@ -66,7 +66,7 @@ class CustomerDetailResponse(BaseModel):
 class ProductMatchItem(BaseModel):
     product_name: str
     product_explanation: str
-    is_suitable: bool
+    is_suitable: int
     reason: str
     product_type: str
     is_owned: Optional[bool] = False
