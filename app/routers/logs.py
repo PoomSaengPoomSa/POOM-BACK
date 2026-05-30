@@ -13,7 +13,7 @@ router = APIRouter(prefix="", tags=["logs"])
 
 from app.config import get_settings
 settings = get_settings()
-ES_HOST = os.getenv("ELASTICSEARCH_URL", settings.ES_HOST)
+ES_HOST = os.getenv("ES_HOST", settings.ES_HOST)
 ES_INDEX = "system_logs"
 
 
