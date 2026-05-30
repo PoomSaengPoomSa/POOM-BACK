@@ -17,18 +17,25 @@ class DashboardNews(BaseModel):
     it: Optional[List[DashboardNewsItem]] = None
 
 class DashboardGoldRealEstate(BaseModel):
-    yesterday: float
-    today: float
-    tomorrow: float
-    changeRate: float
-    changeDirection: str  # 'up', 'down', 'flat'
+    yesterday: Optional[float] = None
+    today: Optional[float] = None
+    tomorrow: Optional[float] = None
+    changeRate: Optional[float] = None
+    changeDirection: Optional[str] = None  # 'up', 'down', 'flat'
+    probRise: Optional[float] = None
+    probFall: Optional[float] = None
+    predictionText: Optional[str] = None
 
 class DashboardInterestRate(BaseModel):
-    lastMonth: float
-    thisMonth: float
-    nextMonth: float
-    changeRate: float
-    changeDirection: str  # 'up', 'down', 'flat'
+    lastMonth: Optional[float] = None
+    thisMonth: Optional[float] = None
+    nextMonth: Optional[float] = None
+    changeRate: Optional[float] = None
+    changeDirection: Optional[str] = None  # 'up', 'down', 'flat'
+    probCut: Optional[float] = None
+    probFreeze: Optional[float] = None
+    probHike: Optional[float] = None
+    predictionText: Optional[str] = None
 
 class DashboardIndicators(BaseModel):
     gold: DashboardGoldRealEstate
@@ -116,6 +123,12 @@ class TomorrowPrediction(BaseModel):
     value: Optional[float] = None
     changeRate: Optional[float] = None
     direction: Optional[str] = None
+    probRise: Optional[float] = None
+    probFall: Optional[float] = None
+    probCut: Optional[float] = None
+    probFreeze: Optional[float] = None
+    probHike: Optional[float] = None
+    predictionText: Optional[str] = None
 
 class IndicatorLatest(BaseModel):
     type: str
@@ -144,15 +157,15 @@ class IndicatorHistoryResponse(BaseModel):
 
 
 class MlflowInfo(BaseModel):
-    run_id: str
-    model_name: str
-    model_version: str
-    stage: str
+    run_id: Optional[str] = None
+    model_name: Optional[str] = None
+    model_version: Optional[str] = None
+    stage: Optional[str] = None
 
 
 class IndicatorPredictionItem(BaseModel):
     date: str
-    value: float
+    value: Optional[float] = None
     lower: Optional[float] = None
     upper: Optional[float] = None
 
