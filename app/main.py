@@ -1,3 +1,9 @@
+import asyncio
+import sys
+
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 from contextlib import asynccontextmanager
 import logging
 import time
@@ -11,6 +17,19 @@ from cachetools import TTLCache
 
 from app.routers import auth, admin, schedule, customer, trend, ai_todo, kpi, notification
 from app.config import get_settings
+
+import threading
+
+def fire_and_forget(coro):
+    """별도 스레드에서 비동기 작업 실행 (Windows 호환)"""
+    def run():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(coro)
+        finally:
+            loop.close()
+    threading.Thread(target=run, daemon=True).start()
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +143,8 @@ async def log_request_middleware(request, call_next):
         print(f"[API LOG] [{request.method}] {path} - Status: {response.status_code} ({ms}ms)")
         
         # 비동기 Task로 system_logs 전송 (스레드 블로킹 없음)
-        asyncio.create_task(send_log_async(ES_HOST, "system_logs", log_data))
+        # asyncio.create_task(send_log_async(ES_HOST, "system_logs", log_data))
+        fire_and_forget(send_log_async(ES_HOST, "system_logs", log_data))
 
         if user_id != "system" and "admin" not in user_id.lower() and not is_admin:
             feature = None
@@ -144,7 +164,7 @@ async def log_request_middleware(request, call_next):
                 # 캐시에 없으면(최근 5초 내 처음이면) 로직 실행 후 캐시에 등록
                 if dedup_key not in _emp_log_dedup:
                     _emp_log_dedup[dedup_key] = True
-                    asyncio.create_task(send_emp_log_with_info_async(user_id, feature, timestamp))
+                    fire_and_forget(send_emp_log_with_info_async(user_id, feature, timestamp)) # 속도개선 수정
 
     return response
 
