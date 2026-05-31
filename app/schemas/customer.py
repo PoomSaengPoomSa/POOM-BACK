@@ -60,6 +60,8 @@ class CustomerDetailResponse(BaseModel):
     start_date: Optional[date] = None
     grade: str
     llm_insight: Optional[str] = None
+    update_time: Optional[datetime] = None
+    analysis_time: Optional[datetime] = None
     model_config = ConfigDict(from_attributes=True)
 
 
