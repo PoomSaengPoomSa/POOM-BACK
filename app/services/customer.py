@@ -573,6 +573,7 @@ def run_llm_structure_memo(memo_text: str):
     cwd = os.path.join(POOM_AI_DIR, "llm", "consult_assist")
     
     try:
+        env = {**os.environ, "PYTHONUTF8": "1"}
         process = subprocess.Popen(
             [python_exe, script_path],
             stdin=subprocess.PIPE,
@@ -580,6 +581,8 @@ def run_llm_structure_memo(memo_text: str):
             stderr=subprocess.PIPE,
             text=True,
             encoding='utf-8',
+            errors='replace',
+            env=env,
             cwd=cwd
         )
         stdout, stderr = process.communicate(input=memo_text)
@@ -691,12 +694,15 @@ def run_customer_feature_agent(customer_id: int):
     
     try:
         print(f"[Background] Starting Customer Feature Agent for Customer ID: {customer_id}")
+        env = {**os.environ, "PYTHONUTF8": "1"}
         process = subprocess.Popen(
             [python_exe, script_path, "--c_id", str(customer_id)],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
             encoding='utf-8',
+            errors='replace',
+            env=env,
             cwd=cwd
         )
         stdout, stderr = process.communicate()
@@ -782,6 +788,7 @@ def simulator_chat(
     cwd = os.path.join(POOM_AI_DIR, "llm", "consult_assist")
     
     try:
+        env = {**os.environ, "PYTHONUTF8": "1"}
         process = subprocess.Popen(
             [python_exe, script_path, str(customer_id)],
             stdin=subprocess.PIPE,
@@ -789,6 +796,8 @@ def simulator_chat(
             stderr=subprocess.PIPE,
             text=True,
             encoding='utf-8',
+            errors='replace',
+            env=env,
             cwd=cwd
         )
         stdout, stderr = process.communicate(input=question)

@@ -38,6 +38,7 @@ class Customer(Base):
     start_date = Column(Date, default=func.current_date())
     grade = Column(String(30), nullable=False)
     llm_insight = Column(Text, nullable=True)
+    features = Column(Text, nullable=True)
     update_time = Column(DateTime, default=func.now(), onupdate=func.now(), nullable=False)
     analysis_time = Column(DateTime, nullable=True)
 
