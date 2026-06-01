@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 import requests
 import pandas as pd
@@ -7,6 +8,12 @@ import yfinance as yf
 from sqlalchemy import create_engine, text
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+
+# Windows 환경에서 콘솔 출력 인코딩 문제 해결 (cp949로 인한 emoji 출력 에러 방지)
+if sys.platform.startswith('win'):
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 # ═══════════════════════════════════════════════════
 #  공통 환경 및 날짜 설정
@@ -227,7 +234,11 @@ def merge_and_save(dfs, file_path, desc):
 def collect_all():
     # 3단계 위로 수정 (POOM-BACK 루트)
     base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    load_dotenv(dotenv_path=os.path.join(base_dir, '.env'))
+    env_path = os.path.join(base_dir, '.env')
+    # .env 파일이 POOM-BACK 루트에 없고 상위(poom) 루트에 있다면 상위 경로 사용
+    if not os.path.exists(env_path):
+        env_path = os.path.join(os.path.dirname(base_dir), '.env')
+    load_dotenv(dotenv_path=env_path)
 
     ecos_key = os.getenv('ECOS_API_KEY')
     fred_key = os.getenv('FRED_API_KEY')
@@ -438,7 +449,11 @@ def load_and_split_data():
     current_dir = os.path.dirname(os.path.abspath(__file__))
     base_dir = os.path.dirname(os.path.dirname(current_dir))
     data_dir = os.path.join(base_dir, 'data', 'ml')
-    load_dotenv(dotenv_path=os.path.join(base_dir, '.env'))
+    env_path = os.path.join(base_dir, '.env')
+    # .env 파일이 POOM-BACK 루트에 없고 상위(poom) 루트에 있다면 상위 경로 사용
+    if not os.path.exists(env_path):
+        env_path = os.path.join(os.path.dirname(base_dir), '.env')
+    load_dotenv(dotenv_path=env_path)
 
     # 파일 읽기
     path_m = os.path.join(data_dir, 'rawdata_m.csv')
