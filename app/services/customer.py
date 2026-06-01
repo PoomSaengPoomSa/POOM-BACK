@@ -1,5 +1,6 @@
 from typing import Optional, List
 from datetime import datetime
+import os
 from sqlalchemy import extract
 from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException, status, BackgroundTasks
@@ -29,6 +30,15 @@ from app.schemas.customer import (
     SimulatorChatResponse,
     SimulatorInfoResponse,
 )
+
+_current_file = os.path.abspath(__file__)
+_services_dir = os.path.dirname(_current_file)
+_app_dir = os.path.dirname(_services_dir)
+_back_dir = os.path.dirname(_app_dir)
+_poom_root = os.path.dirname(_back_dir)
+
+POOM_AI_DIR = os.path.join(_poom_root, "POOM-AI")
+
 
 
 
@@ -558,9 +568,9 @@ def run_llm_structure_memo(memo_text: str):
     import subprocess
     import json
     
-    python_exe = r"c:\Users\jongh\Working_Directory\poom\POOM-AI\.venv\Scripts\python.exe"
-    script_path = r"c:\Users\jongh\Working_Directory\poom\POOM-AI\llm\consult_assist\consult_assistant.py"
-    cwd = r"c:\Users\jongh\Working_Directory\poom\POOM-AI\llm\consult_assist"
+    python_exe = os.path.join(POOM_AI_DIR, ".venv", "Scripts", "python.exe")
+    script_path = os.path.join(POOM_AI_DIR, "llm", "consult_assist", "consult_assistant.py")
+    cwd = os.path.join(POOM_AI_DIR, "llm", "consult_assist")
     
     try:
         process = subprocess.Popen(
@@ -675,9 +685,9 @@ def run_customer_feature_agent(customer_id: int):
     import subprocess
     import os
     
-    python_exe = r"c:\Users\jongh\Working_Directory\poom\POOM-AI\.venv\Scripts\python.exe"
-    script_path = r"c:\Users\jongh\Working_Directory\poom\POOM-AI\agent\customer\run_feature.py"
-    cwd = r"c:\Users\jongh\Working_Directory\poom\POOM-AI\agent\customer"
+    python_exe = os.path.join(POOM_AI_DIR, ".venv", "Scripts", "python.exe")
+    script_path = os.path.join(POOM_AI_DIR, "agent", "customer", "run_feature.py")
+    cwd = os.path.join(POOM_AI_DIR, "agent", "customer")
     
     try:
         print(f"[Background] Starting Customer Feature Agent for Customer ID: {customer_id}")
@@ -767,9 +777,9 @@ def simulator_chat(
     question = request.question or ""
     
     # 1. Run LLM Simulator via Subprocess
-    python_exe = r"c:\Users\jongh\Working_Directory\poom\POOM-AI\.venv\Scripts\python.exe"
-    script_path = r"c:\Users\jongh\Working_Directory\poom\POOM-AI\llm\consult_assist\simulator.py"
-    cwd = r"c:\Users\jongh\Working_Directory\poom\POOM-AI\llm\consult_assist"
+    python_exe = os.path.join(POOM_AI_DIR, ".venv", "Scripts", "python.exe")
+    script_path = os.path.join(POOM_AI_DIR, "llm", "consult_assist", "simulator.py")
+    cwd = os.path.join(POOM_AI_DIR, "llm", "consult_assist")
     
     try:
         process = subprocess.Popen(
@@ -850,7 +860,7 @@ def save_simulator_info(
     )
     
     # Ensure directory exists and write markdown file
-    ai_data_dir = r"c:\Users\jongh\Working_Directory\poom\POOM-AI\llm\consult_assist\data"
+    ai_data_dir = os.path.join(POOM_AI_DIR, "llm", "consult_assist", "data")
     os.makedirs(ai_data_dir, exist_ok=True)
     
     md_path = os.path.join(ai_data_dir, f"customer_{customer_id}.md")
@@ -890,7 +900,7 @@ def get_simulator_info(
             detail="고객을 찾을 수 없습니다.",
         )
         
-    ai_data_dir = r"c:\Users\jongh\Working_Directory\poom\POOM-AI\llm\consult_assist\data"
+    ai_data_dir = os.path.join(POOM_AI_DIR, "llm", "consult_assist", "data")
     
     md_path = os.path.join(ai_data_dir, f"customer_{customer_id}.md")
     txt_path = os.path.join(ai_data_dir, f"customer_{customer_id}.txt")
