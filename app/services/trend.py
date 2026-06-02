@@ -38,7 +38,7 @@ async def get_trend_dashboard(current_user, db: Session) -> TrendDashboardRespon
     politics_news = []
     it_news = []
     
-    # 1. Elasticsearch에서 기사 조회 시도 (카테고리별 최신 3건)
+    # 1. Elasticsearch에서 기사 조회 시도 (카테고리별 최신 5건)
     try:
         async with httpx.AsyncClient(timeout=1.0) as client:
             resp_econ = await client.post(
@@ -270,13 +270,68 @@ async def get_trend_dashboard(current_user, db: Session) -> TrendDashboardRespon
         "predictionText": pred_text_br
     }
 
+    # D. 실시간 트렌드 지표 조회 (각 지표별 최신 2개의 non-null 값 기반)
+    realtime_trends = []
+    try:
+        # 1. CPI (소비자물가지수)
+        cpi_query = text("SELECT kr_cpi, loaded_date FROM ml_gold_raw WHERE kr_cpi IS NOT NULL ORDER BY loaded_date DESC LIMIT 2")
+        cpi_res = db.execute(cpi_query).fetchall()
+        if len(cpi_res) >= 2:
+            cpi_today = float(cpi_res[0][0])
+            cpi_yesterday = float(cpi_res[1][0])
+            cpi_diff = cpi_today - cpi_yesterday
+            cpi_rate = (cpi_diff / cpi_yesterday) * 100 if cpi_yesterday != 0 else 0.0
+            realtime_trends.append({
+                "name": "CPI",
+                "value": f"{cpi_today:.1f}" if cpi_today < 1000 else f"{cpi_today:,.1f}",
+                "unit": "",
+                "rate": f"{cpi_rate:+.2f}%" if cpi_rate != 0 else "0.00%",
+                "direction": "up" if cpi_rate > 0 else "down" if cpi_rate < 0 else "flat"
+            })
+
+        # 2. 코스피 200 (KOSPI 200)
+        kospi_query = text("SELECT kospi200, loaded_date FROM ml_gold_raw WHERE kospi200 IS NOT NULL ORDER BY loaded_date DESC LIMIT 2")
+        kospi_res = db.execute(kospi_query).fetchall()
+        if len(kospi_res) >= 2:
+            kospi_today = float(kospi_res[0][0])
+            kospi_yesterday = float(kospi_res[1][0])
+            kospi_diff = kospi_today - kospi_yesterday
+            kospi_rate = (kospi_diff / kospi_yesterday) * 100 if kospi_yesterday != 0 else 0.0
+            realtime_trends.append({
+                "name": "코스피 200",
+                "value": f"{kospi_today:,.0f}" if kospi_today >= 1000 else f"{kospi_today:.2f}",
+                "unit": "pt",
+                "rate": f"{kospi_rate:+.2f}%" if kospi_rate != 0 else "0.00%",
+                "direction": "up" if kospi_rate > 0 else "down" if kospi_rate < 0 else "flat"
+            })
+
+        # 3. S&P 500
+        sp_query = text("SELECT sp500, loaded_date FROM ml_gold_raw WHERE sp500 IS NOT NULL ORDER BY loaded_date DESC LIMIT 2")
+        sp_res = db.execute(sp_query).fetchall()
+        if len(sp_res) >= 2:
+            sp_today = float(sp_res[0][0])
+            sp_yesterday = float(sp_res[1][0])
+            sp_diff = sp_today - sp_yesterday
+            sp_rate = (sp_diff / sp_yesterday) * 100 if sp_yesterday != 0 else 0.0
+            realtime_trends.append({
+                "name": "S&P 500",
+                "value": f"{sp_today:,.0f}" if sp_today >= 1000 else f"{sp_today:.2f}",
+                "unit": "pt",
+                "rate": f"{sp_rate:+.2f}%" if sp_rate != 0 else "0.00%",
+                "direction": "up" if sp_rate > 0 else "down" if sp_rate < 0 else "flat"
+            })
+    except Exception as e:
+        logger.warning(f"Failed to fetch realtime trends from DB: {e}")
+        realtime_trends = []
+
     return {
         "news": news_data,
         "indicators": {
             "gold": gold_data,
             "realEstate": re_data,
             "interestRate": br_data
-        }
+        },
+        "realtimeTrends": realtime_trends
     }
 
 

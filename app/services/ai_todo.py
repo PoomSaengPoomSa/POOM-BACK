@@ -140,6 +140,20 @@ def unconfirm_ai_todo(
     return AiTodoUnconfirmResponse(message="성공적으로 취소되었습니다.", success=True)
 
 
+def delete_ai_todo(at_id: int, current_user, db: Session) -> dict:
+    """AI 투두 숨김 (DB 삭제)"""
+    todo = db.query(AiTodo).filter(AiTodo.at_id == at_id).first()
+    if not todo:
+        from fastapi import HTTPException, status
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="AI 투두를 찾을 수 없습니다."
+        )
+    db.delete(todo)
+    db.commit()
+    return {"message": "추천 일정이 성공적으로 삭제되었습니다."}
+
+
 def run_ai_todo_agent_subprocess(u_id: str, target_date: str) -> None:
     """POOM-AI LangGraph To-Do Agent를 서브프로세스로 구동하여 일정을 자동 기획하고 DB에 적재합니다."""
     try:

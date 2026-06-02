@@ -42,9 +42,17 @@ class DashboardIndicators(BaseModel):
     realEstate: DashboardGoldRealEstate
     interestRate: DashboardInterestRate
 
+class RealtimeTrendItem(BaseModel):
+    name: str
+    value: str
+    unit: str
+    rate: str
+    direction: str
+
 class TrendDashboardResponse(BaseModel):
     news: DashboardNews
     indicators: DashboardIndicators
+    realtimeTrends: List[RealtimeTrendItem] = []
 
 
 # 뉴스
