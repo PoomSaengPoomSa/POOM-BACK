@@ -45,6 +45,16 @@ def unconfirm_ai_todo(
     return ai_todo_service.unconfirm_ai_todo(at_id, current_user, db)
 
 
+@router.delete("/{at_id}", response_model=MessageResponse)
+def delete_ai_todo(
+    at_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """AI 투두 삭제/숨김"""
+    return ai_todo_service.delete_ai_todo(at_id, current_user, db)
+
+
 @router.post("/run", response_model=MessageResponse)
 def run_ai_todo_agent(
     u_id: str = Query(..., description="PB ID"),

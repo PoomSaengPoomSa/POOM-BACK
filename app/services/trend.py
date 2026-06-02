@@ -101,7 +101,7 @@ async def get_trend_dashboard(current_user, db: Session) -> TrendDashboardRespon
     politics_news = []
     it_news = []
     
-    # 1. Elasticsearch에서 기사 조회 시도 (카테고리별 최신 3건)
+    # 1. Elasticsearch에서 기사 조회 시도 (카테고리별 최신 5건)
     try:
         async with httpx.AsyncClient(timeout=1.0) as client:
             resp_econ = await client.post(
