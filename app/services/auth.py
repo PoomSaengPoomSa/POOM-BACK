@@ -136,6 +136,7 @@ def signup(request: SignupRequest, db: Session) -> UserResponse:
         name=new_pb.name,
         email=new_pb.email,
         role=new_account.role,
+        position=new_pb.position,
     )
 
 
@@ -172,14 +173,17 @@ def get_me(current_user, db: Session) -> UserResponse:
     user_name = "PB직원"
     email = ""
     branch_name = None
+    position_name = None
     if current_user.role == "admin":
         user_name = "관리자"
         email = "admin@poom.com"
+        position_name = "관리자"
     else:
         pb_user = current_user.pb_user
         if pb_user:
             user_name = pb_user.name
             email = pb_user.email
+            position_name = pb_user.position
             if pb_user.branch_rel:
                 branch_name = pb_user.branch_rel.name
 
@@ -189,6 +193,7 @@ def get_me(current_user, db: Session) -> UserResponse:
         email=email,
         role=current_user.role,
         branch=branch_name,
+        position=position_name,
     )
 
 
