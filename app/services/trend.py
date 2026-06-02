@@ -31,6 +31,69 @@ from app.config import get_settings
 settings = get_settings()
 ES_HOST = settings.ES_HOST
 
+import os
+import time
+
+AI_NEWS_CACHE = {
+    "economy": {"summary": "", "updated_at": 0.0},
+    "politics": {"summary": "", "updated_at": 0.0},
+    "itScience": {"summary": "", "updated_at": 0.0}
+}
+CACHE_EXPIRE_SECONDS = 3600  # 1 hour
+
+async def fetch_ai_news_summary(category: str, articles: list) -> str:
+    """최신 기사 제목들을 바탕으로 OpenAI를 사용하여 2줄 요약 생성"""
+    if not articles:
+        return "- 최신 기사가 아직 수집되지 않았습니다."
+        
+    api_key = settings.openai_api_key or os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        logger.warning("OPENAI_API_KEY is not configured. Returning fallback msg.")
+        return "- OpenAI API 키가 설정되지 않아 실시간 AI 요약을 생성할 수 없습니다."
+        
+    titles_str = "\n".join([f"- {a['title']}" for a in articles])
+    
+    prompt = f"""
+다음은 최신 {category} 뉴스 기사들의 제목 목록입니다:
+{titles_str}
+
+이 기사들의 주요 맥락과 트렌드를 요약하여 핵심적인 '2줄 브리핑 요약'을 작성해주세요.
+반드시 아래 규칙을 지켜주세요:
+1. 글머리 기호(-)를 사용하여 정확히 2개의 요약 문장으로 마크다운 리스트 형태로만 출력하세요.
+2. 각 요약문은 전문적이고 깔끔한 한국어 종결어미(~함, ~임 또는 ~했습니다 등 격식있게)로 끝맺으세요.
+3. 단순 기사의 나열이 아닌, 전체 기사를 아우르는 핵심 요약 브리핑으로 작성하세요.
+4. 추가적인 멘트나 부가 설명 없이 오직 2줄의 마크다운 리스트 결과만 리턴하세요.
+"""
+    
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {api_key}"
+                },
+                json={
+                    "model": "gpt-4o-mini",
+                    "messages": [
+                        {"role": "system", "content": "You are a professional news analyst. You must provide exactly 2-line summarized briefing in markdown bullet format based on user inputs."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    "temperature": 0.5,
+                    "max_tokens": 300
+                }
+            )
+            if resp.status_code == 200:
+                result = resp.json()
+                summary = result["choices"][0]["message"]["content"].strip()
+                return summary
+            else:
+                logger.warning(f"Failed to get AI summary from OpenAI: {resp.status_code} - {resp.text}")
+                return "- 실시간 AI 요약 브리핑을 생성하는 도중 오류가 발생했습니다."
+    except Exception as e:
+        logger.warning(f"Exception while generating AI news summary: {e}")
+        return "- 실시간 AI 요약 브리핑을 준비 중입니다."
+
 
 async def get_trend_dashboard(current_user, db: Session) -> TrendDashboardResponse:
     """트렌드 대시보드 조회 (Elasticsearch 우선조회 후 MySQL 폴백)"""
@@ -270,13 +333,91 @@ async def get_trend_dashboard(current_user, db: Session) -> TrendDashboardRespon
         "predictionText": pred_text_br
     }
 
+    # D. 실시간 트렌드 지표 조회 (각 지표별 최신 2개의 non-null 값 기반)
+    realtime_trends = []
+    try:
+        # 1. CPI (소비자물가지수)
+        cpi_query = text("SELECT kr_cpi, loaded_date FROM ml_gold_raw WHERE kr_cpi IS NOT NULL ORDER BY loaded_date DESC LIMIT 2")
+        cpi_res = db.execute(cpi_query).fetchall()
+        if len(cpi_res) >= 2:
+            cpi_today = float(cpi_res[0][0])
+            cpi_yesterday = float(cpi_res[1][0])
+            cpi_diff = cpi_today - cpi_yesterday
+            cpi_rate = (cpi_diff / cpi_yesterday) * 100 if cpi_yesterday != 0 else 0.0
+            realtime_trends.append({
+                "name": "CPI",
+                "value": f"{cpi_today:.1f}" if cpi_today < 1000 else f"{cpi_today:,.1f}",
+                "unit": "",
+                "rate": f"{cpi_rate:+.2f}%" if cpi_rate != 0 else "0.00%",
+                "direction": "up" if cpi_rate > 0 else "down" if cpi_rate < 0 else "flat"
+            })
+
+        # 2. 코스피 200 (KOSPI 200)
+        kospi_query = text("SELECT kospi200, loaded_date FROM ml_gold_raw WHERE kospi200 IS NOT NULL ORDER BY loaded_date DESC LIMIT 2")
+        kospi_res = db.execute(kospi_query).fetchall()
+        if len(kospi_res) >= 2:
+            kospi_today = float(kospi_res[0][0])
+            kospi_yesterday = float(kospi_res[1][0])
+            kospi_diff = kospi_today - kospi_yesterday
+            kospi_rate = (kospi_diff / kospi_yesterday) * 100 if kospi_yesterday != 0 else 0.0
+            realtime_trends.append({
+                "name": "코스피 200",
+                "value": f"{kospi_today:,.0f}" if kospi_today >= 1000 else f"{kospi_today:.2f}",
+                "unit": "pt",
+                "rate": f"{kospi_rate:+.2f}%" if kospi_rate != 0 else "0.00%",
+                "direction": "up" if kospi_rate > 0 else "down" if kospi_rate < 0 else "flat"
+            })
+
+        # 3. S&P 500
+        sp_query = text("SELECT sp500, loaded_date FROM ml_gold_raw WHERE sp500 IS NOT NULL ORDER BY loaded_date DESC LIMIT 2")
+        sp_res = db.execute(sp_query).fetchall()
+        if len(sp_res) >= 2:
+            sp_today = float(sp_res[0][0])
+            sp_yesterday = float(sp_res[1][0])
+            sp_diff = sp_today - sp_yesterday
+            sp_rate = (sp_diff / sp_yesterday) * 100 if sp_yesterday != 0 else 0.0
+            realtime_trends.append({
+                "name": "S&P 500",
+                "value": f"{sp_today:,.0f}" if sp_today >= 1000 else f"{sp_today:.2f}",
+                "unit": "pt",
+                "rate": f"{sp_rate:+.2f}%" if sp_rate != 0 else "0.00%",
+                "direction": "up" if sp_rate > 0 else "down" if sp_rate < 0 else "flat"
+            })
+    except Exception as e:
+        logger.warning(f"Failed to fetch realtime trends from DB: {e}")
+        realtime_trends = []
+
+
+
+    # E. 뉴스 AI 요약 생성 및 캐싱 연동
+    ai_summaries = {}
+    current_time = time.time()
+    
+    for cat_key, articles in [("economy", economy_news), ("politics", politics_news), ("itScience", it_news)]:
+        cache_data = AI_NEWS_CACHE[cat_key]
+        if not cache_data["summary"] or (current_time - cache_data["updated_at"] > CACHE_EXPIRE_SECONDS):
+            cat_name = "경제" if cat_key == "economy" else "정치" if cat_key == "politics" else "IT/과학"
+            summary_txt = await fetch_ai_news_summary(cat_name, articles)
+            if summary_txt and not summary_txt.startswith("- 실시간 AI 요약 브리핑을 생성하는 도중") and not summary_txt.startswith("- 실시간 AI 요약 브리핑을 준비"):
+                AI_NEWS_CACHE[cat_key] = {
+                    "summary": summary_txt,
+                    "updated_at": current_time
+                }
+                ai_summaries[cat_key] = summary_txt
+            else:
+                ai_summaries[cat_key] = cache_data["summary"] if cache_data["summary"] else summary_txt
+        else:
+            ai_summaries[cat_key] = cache_data["summary"]
+
     return {
         "news": news_data,
         "indicators": {
             "gold": gold_data,
             "realEstate": re_data,
             "interestRate": br_data
-        }
+        },
+        "realtimeTrends": realtime_trends,
+        "aiSummaries": ai_summaries
     }
 
 
