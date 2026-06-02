@@ -375,7 +375,7 @@ def get_customer_memos(
     from app.models.consultation import ConsultationMemo, ConsultationReport
     from app.schemas.customer import TimelineItem, TimelineContent, ScrollInfo
     
-    query = db.query(ConsultationMemo).join(ConsultationMemo.report).options(joinedload(ConsultationMemo.report)).filter(ConsultationMemo.c_id == customer_id)
+    query = db.query(ConsultationMemo).outerjoin(ConsultationMemo.report).options(joinedload(ConsultationMemo.report)).filter(ConsultationMemo.c_id == customer_id)
     
     # Cursor pagination
     if cursor:
