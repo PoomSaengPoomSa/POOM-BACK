@@ -65,6 +65,10 @@ class CustomerRelationship(Base):
     c_id = Column(Integer, ForeignKey("customer.c_id"), nullable=False)
     relationship_ = Column("relationship", String(50), nullable=False)
     information = Column(Text)
+    birthday = Column(Date)
+    job = Column(String(50))
+    is_spouse = Column(Boolean)
+    wedding_date = Column(Date)
 
     # Relationships
     customer = relationship("Customer", back_populates="relationships")
