@@ -221,25 +221,18 @@ def get_main_product_match(
     customer_id: int, current_user, db: Session
 ) -> MainProductMatchResponse:
     """주력 상품 매칭"""
-    from app.models.product import ProductMatching, CustomerProduct
+    from app.models.product import ProductMatching, CustomerProduct, Product
     from app.schemas.customer import ProductMatchItem
+    from app.models.customer import Customer
 
-    # Query all matching records for the customer, ordered by created_date desc
-    matchings = (
-        db.query(ProductMatching)
-        .options(joinedload(ProductMatching.product))
-        .filter(ProductMatching.c_id == customer_id)
-        .order_by(ProductMatching.created_date.desc())
+    # 1. is_main이 1 (True)인 주력 상품 목록 조회
+    main_products = (
+        db.query(Product)
+        .filter(Product.is_main == True)
         .all()
     )
 
-    # Filter to get only the most recent matching for each unique pd_id
-    unique_matchings = {}
-    for m in matchings:
-        if m.pd_id not in unique_matchings:
-            unique_matchings[m.pd_id] = m
-
-    # Query owned product ids for this customer
+    # 2. 고객의 보유 상품 pd_id 목록 조회
     owned_product_ids = {
         cp.pd_id
         for cp in db.query(CustomerProduct.pd_id)
@@ -247,21 +240,47 @@ def get_main_product_match(
         .all()
     }
 
+    # 3. 고객의 상품 매칭 데이터 조회 (최신순)
+    matchings = (
+        db.query(ProductMatching)
+        .filter(ProductMatching.c_id == customer_id)
+        .order_by(ProductMatching.created_date.desc())
+        .all()
+    )
+
+    unique_matchings = {}
+    for m in matchings:
+        if m.pd_id not in unique_matchings:
+            unique_matchings[m.pd_id] = m
+
+    # 4. 고객 투자성향 조회 (매칭 데이터 없을 때를 대비한 기본 사유 작성을 위함)
+    customer = db.query(Customer).filter(Customer.c_id == customer_id).first()
+    tendency = customer.tendency if customer and customer.tendency else "안정추구형"
+
     items = []
-    # Map the unique matchings to ProductMatchItem DTOs
-    for m in unique_matchings.values():
-        if m.product:
-            is_owned = m.pd_id in owned_product_ids
-            items.append(
-                ProductMatchItem(
-                    product_name=m.product.name,
-                    product_explanation=m.product.explanation,
-                    is_suitable=m.is_suitable,
-                    reason=m.reason,
-                    product_type=m.product.type,
-                    is_owned=is_owned,
-                )
+    # 5. 주력 상품을 기준으로 DTO 데이터 생성
+    for prod in main_products:
+        is_owned = prod.pd_id in owned_product_ids
+        
+        # 해당 주력 상품의 매칭 이력이 매칭 테이블에 존재하는지 확인
+        matching = unique_matchings.get(prod.pd_id)
+        if matching:
+            is_suitable = matching.is_suitable
+            reason = matching.reason
+        else:
+            is_suitable = 1 # 기본값 적합 (Integer)
+            reason = f"고객님의 투자 성향({tendency})에 적합한 상품입니다."
+
+        items.append(
+            ProductMatchItem(
+                product_name=prod.name,
+                product_explanation=prod.explanation,
+                is_suitable=is_suitable,
+                reason=reason,
+                product_type=prod.type,
+                is_owned=is_owned,
             )
+        )
 
     return MainProductMatchResponse(items=items)
 

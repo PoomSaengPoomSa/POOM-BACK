@@ -2,7 +2,7 @@ import datetime
 import sys
 from pathlib import Path
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from app.models.notification import Notification
 from app.schemas.notification import NotificationResponse
 
@@ -80,7 +80,10 @@ def get_notifications(
             import logging
             logging.getLogger(__name__).error(f"[OnDemandGeneration] 실시간 방문 브리핑 생성 실패: {e}", exc_info=True)
 
-    query = db.query(Notification).filter(Notification.u_id == current_user.id)
+    query = db.query(Notification).filter(
+        Notification.u_id == current_user.id,
+        Notification.category != "방문 예정 브리핑"
+    )
     
     # 최신 알림 순 정렬
     notifs = query.order_by(Notification.created_time.desc()).all()
@@ -120,7 +123,7 @@ def get_notifications(
 
 
 def get_today_count(current_user, db: Session) -> int:
-    """오늘 날짜의 알림 개수 조회"""
+    """오늘 날짜의 알림 개수 조회 (방문 예정 브리핑 제외)"""
     today_date = datetime.date.today()
     
     # 쿼리에서 오늘 시작(00:00:00)부터 오늘 끝(23:59:59)까지 필터링
@@ -131,9 +134,75 @@ def get_today_count(current_user, db: Session) -> int:
         db.query(Notification)
         .filter(
             Notification.u_id == current_user.id,
+            Notification.category != "방문 예정 브리핑",
             Notification.created_time >= start_of_today,
             Notification.created_time <= end_of_today,
         )
         .count()
     )
     return count
+
+
+def get_customer_briefing(current_user, customer_id: int, db: Session) -> Optional[NotificationResponse]:
+    """특정 고객의 오늘 날짜 방문 예정 브리핑 조회 및 미생성 시 온디맨드 생성"""
+    today_date = datetime.date.today()
+    
+    # 1. 온디맨드 생성 처리
+    if run_notification_generator:
+        try:
+            today_str = today_date.strftime("%Y-%m-%d")
+            from app.models.schedule import Schedule
+            
+            start_of_today = datetime.datetime.combine(today_date, datetime.time.min)
+            end_of_today = datetime.datetime.combine(today_date, datetime.time.max)
+            
+            schedule = db.query(Schedule).filter(
+                Schedule.u_id == current_user.id,
+                Schedule.category == "상담",
+                Schedule.c_id == customer_id,
+                Schedule.execution_date >= start_of_today,
+                Schedule.execution_date <= end_of_today
+            ).first()
+            
+            if schedule:
+                dup = db.query(Notification).filter(
+                    Notification.u_id == current_user.id,
+                    Notification.category == "방문 예정 브리핑",
+                    Notification.s_id == schedule.s_id
+                ).first()
+                if not dup:
+                    run_notification_generator(current_user.id, today_str, db=db)
+                    db.commit()
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"[OnDemandGeneration] 특정 고객 브리핑 생성 실패: {e}", exc_info=True)
+
+    # 2. 조회 및 반환
+    n = db.query(Notification).filter(
+        Notification.u_id == current_user.id,
+        Notification.c_id == customer_id,
+        Notification.category == "방문 예정 브리핑"
+    ).order_by(Notification.created_time.desc()).first()
+    
+    if not n:
+        return None
+        
+    created_date = n.created_time.date()
+    is_today = (created_date == today_date)
+    days_diff = (today_date - created_date).days
+    
+    return NotificationResponse(
+        id=n.n_id,
+        type=n.category or "안부 연락",
+        content=n.title,
+        date=format_date(n.created_time),
+        category=map_category_color(n.category),
+        today=is_today,
+        isBriefing=(n.category == "방문 예정 브리핑"),
+        expandedContent=[line.strip() for line in n.content.split("\n") if line.strip()] if n.content else [],
+        state_us=n.state_us,
+        u_id=n.u_id,
+        s_id=n.s_id,
+        c_id=n.c_id,
+        days_diff=days_diff,
+    )
