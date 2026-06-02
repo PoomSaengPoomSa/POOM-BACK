@@ -390,14 +390,29 @@ async def get_trend_dashboard(current_user, db: Session) -> TrendDashboardRespon
 
 
     # E. 뉴스 AI 요약 생성 및 캐싱 연동
+    import asyncio
     ai_summaries = {}
     current_time = time.time()
+    
+    categories_to_fetch = []
     
     for cat_key, articles in [("economy", economy_news), ("politics", politics_news), ("itScience", it_news)]:
         cache_data = AI_NEWS_CACHE[cat_key]
         if not cache_data["summary"] or (current_time - cache_data["updated_at"] > CACHE_EXPIRE_SECONDS):
             cat_name = "경제" if cat_key == "economy" else "정치" if cat_key == "politics" else "IT/과학"
-            summary_txt = await fetch_ai_news_summary(cat_name, articles)
+            categories_to_fetch.append((cat_key, cat_name, fetch_ai_news_summary(cat_name, articles)))
+        else:
+            ai_summaries[cat_key] = cache_data["summary"]
+            
+    if categories_to_fetch:
+        # asyncio.gather를 사용해 모든 OpenAI API 호출을 동시에 실행!
+        keys = [item[0] for item in categories_to_fetch]
+        coroutines = [item[2] for item in categories_to_fetch]
+        
+        results = await asyncio.gather(*coroutines)
+        
+        for cat_key, summary_txt in zip(keys, results):
+            cache_data = AI_NEWS_CACHE[cat_key]
             if summary_txt and not summary_txt.startswith("- 실시간 AI 요약 브리핑을 생성하는 도중") and not summary_txt.startswith("- 실시간 AI 요약 브리핑을 준비"):
                 AI_NEWS_CACHE[cat_key] = {
                     "summary": summary_txt,
@@ -406,8 +421,6 @@ async def get_trend_dashboard(current_user, db: Session) -> TrendDashboardRespon
                 ai_summaries[cat_key] = summary_txt
             else:
                 ai_summaries[cat_key] = cache_data["summary"] if cache_data["summary"] else summary_txt
-        else:
-            ai_summaries[cat_key] = cache_data["summary"]
 
     return {
         "news": news_data,
