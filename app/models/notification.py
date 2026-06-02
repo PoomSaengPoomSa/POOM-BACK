@@ -5,6 +5,7 @@ from sqlalchemy import (
     Text,
     ForeignKey,
     CheckConstraint,
+    UniqueConstraint,
     TIMESTAMP,
 )
 from sqlalchemy.orm import relationship
@@ -26,6 +27,7 @@ class Notification(Base):
     c_id = Column(Integer, ForeignKey("customer.c_id"), nullable=True)
 
     __table_args__ = (
+        UniqueConstraint("s_id", "category", name="uq_notification_s_id_category"),
         CheckConstraint(
             "category IN ('방문 예정 브리핑', '거액 거래 탐지', '만기 알림', '이탈 위험', '안부 연락')",
             name="ck_notification_category",
