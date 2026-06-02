@@ -375,7 +375,7 @@ def get_customer_memos(
     from app.models.consultation import ConsultationMemo, ConsultationReport
     from app.schemas.customer import TimelineItem, TimelineContent, ScrollInfo
     
-    query = db.query(ConsultationMemo).join(ConsultationMemo.report).options(joinedload(ConsultationMemo.report)).filter(ConsultationMemo.c_id == customer_id)
+    query = db.query(ConsultationMemo).outerjoin(ConsultationMemo.report).options(joinedload(ConsultationMemo.report)).filter(ConsultationMemo.c_id == customer_id)
     
     # Cursor pagination
     if cursor:
@@ -602,8 +602,7 @@ def generate_ai_report(
     current_user,
     db: Session,
 ) -> GenerateReportResponse:
-    """메모어시스턴트 AI 보고서 생성 및 consultation_memo 선제 적재"""
-    from app.models.consultation import ConsultationMemo
+    """메모어시스턴트 AI 보고서 생성"""
     
     customer = db.query(Customer).filter(Customer.c_id == customer_id).first()
     if not customer:
@@ -623,25 +622,6 @@ def generate_ai_report(
             detail=f"AI 보고서 생성 중 오류가 발생했습니다: {str(e)}"
         )
         
-    # 2. 날짜 파싱 및 consultation_memo에 원본 저장
-    try:
-        parsed_date = datetime.strptime(request.consult_date, "%Y-%m-%d %H:%M:%S")
-    except (ValueError, TypeError):
-        try:
-            parsed_date = datetime.strptime(request.consult_date.split(" ")[0], "%Y-%m-%d")
-        except (ValueError, TypeError, IndexError):
-            parsed_date = datetime.now()
-            
-    new_memo = ConsultationMemo(
-        consult_date=parsed_date,
-        memo=memo_text,
-        c_id=customer_id,
-        u_id=current_user.id
-    )
-    db.add(new_memo)
-    db.commit()
-    db.refresh(new_memo)
-    
     # 3. LLM 결과 매핑 및 줄바꿈 처리
     def clean_item(item: str) -> str:
         if not item:
@@ -673,7 +653,7 @@ def generate_ai_report(
         status=200,
         message="AI 보고서 생성 성공",
         data=GenerateReportData(
-            cm_id=new_memo.cm_id,
+            cm_id=None,
             customer_name=customer_name or "고객",
             main_content=main_content,
             special_remarks=special_remarks,
@@ -721,17 +701,35 @@ def save_ai_report(
     db: Session,
     background_tasks: BackgroundTasks = None,
 ) -> SaveReportResponse:
-    """AI 보고서 저장 (consultation_report 단독 적재)"""
+    """AI 보고서 및 원본 상담 메모 저장"""
     from app.models.consultation import ConsultationMemo, ConsultationReport
     from app.schemas.customer import SaveReportResponseData
     
-    # 전달받은 cm_id가 유효한지 검증
-    memo = db.query(ConsultationMemo).filter(ConsultationMemo.cm_id == request.cm_id).first()
-    if not memo:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="연관된 상담 메모를 찾을 수 없습니다.",
+    cm_id = request.cm_id
+    memo_record = None
+    
+    if not cm_id:
+        memo_text = request.memo or ""
+        parsed_date = datetime.now()
+        
+        memo_record = ConsultationMemo(
+            consult_date=parsed_date,
+            memo=memo_text,
+            c_id=customer_id,
+            u_id=current_user.id
         )
+        db.add(memo_record)
+        db.commit()
+        db.refresh(memo_record)
+        cm_id = memo_record.cm_id
+    else:
+        # 전달받은 cm_id가 유효한지 검증
+        memo_record = db.query(ConsultationMemo).filter(ConsultationMemo.cm_id == cm_id).first()
+        if not memo_record:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="연관된 상담 메모를 찾을 수 없습니다.",
+            )
         
     # consultation_report에 적재
     new_report = ConsultationReport(
@@ -739,7 +737,7 @@ def save_ai_report(
         special_notes=request.content.special_remarks,
         follow_up_actions=request.content.follow_up,
         summary=request.content.summary or "",
-        cm_id=request.cm_id
+        cm_id=cm_id
     )
     db.add(new_report)
     db.commit()
@@ -749,13 +747,13 @@ def save_ai_report(
     if background_tasks:
         background_tasks.add_task(run_customer_feature_agent, customer_id)
         
-    created_at_str = memo.consult_date.strftime("%Y-%m-%d %H:%M:%S")
+    created_at_str = memo_record.consult_date.strftime("%Y-%m-%d %H:%M:%S")
     
     return SaveReportResponse(
         status=201,
         message="보고서 저장 성공",
         data=SaveReportResponseData(
-            cm_id=request.cm_id,
+            cm_id=cm_id,
             cr_id=new_report.cr_id,
             created_at=created_at_str,
         )

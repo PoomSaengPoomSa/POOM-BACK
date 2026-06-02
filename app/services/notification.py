@@ -74,7 +74,7 @@ def get_notifications(
                     break
             
             if need_regeneration:
-                run_notification_generator(current_user.id, today_str)
+                run_notification_generator(current_user.id, today_str, db=db)
                 db.commit()
         except Exception as e:
             import logging

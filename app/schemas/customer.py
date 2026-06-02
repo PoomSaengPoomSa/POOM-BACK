@@ -178,7 +178,7 @@ class GenerateReportRequest(BaseModel):
 
 
 class GenerateReportData(BaseModel):
-    cm_id: int
+    cm_id: Optional[int] = None
     customer_name: str
     main_content: str
     special_remarks: str
@@ -200,7 +200,7 @@ class SaveReportContent(BaseModel):
 
 
 class SaveReportRequest(BaseModel):
-    cm_id: int
+    cm_id: Optional[int] = None
     memo: Optional[str] = None
     consult_date: Optional[str] = None
     content: SaveReportContent

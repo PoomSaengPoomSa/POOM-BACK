@@ -1,5 +1,5 @@
 from pydantic import BaseModel, ConfigDict, Field
-from typing import Optional, List
+from typing import Optional, List, Dict
 from datetime import datetime, date
 
 
@@ -52,7 +52,8 @@ class RealtimeTrendItem(BaseModel):
 class TrendDashboardResponse(BaseModel):
     news: DashboardNews
     indicators: DashboardIndicators
-    realtimeTrends: List[RealtimeTrendItem] = []
+    realtimeTrends: Optional[List[RealtimeTrendItem]] = None
+    aiSummaries: Optional[Dict[str, str]] = None
 
 
 # 뉴스
