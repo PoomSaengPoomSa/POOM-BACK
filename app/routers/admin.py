@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from typing import Optional
 from app.database import get_db
-from app.dependencies import get_current_admin
+from app.dependencies import get_current_admin, get_current_branch_manager
 from app.schemas.admin import (
     SystemDashboardResponse,
     UsageDashboardResponse,
@@ -97,7 +97,7 @@ async def get_permissions(
     search: Optional[str] = Query(None),
     branch: Optional[str] = Query(None),
     db: Session = Depends(get_db),
-    current_admin=Depends(get_current_admin),
+    current_branch_manager=Depends(get_current_branch_manager),
 ):
     """권한 목록 조회"""
     return await admin_service.get_permissions(search, branch, db)
@@ -110,7 +110,7 @@ async def get_permissions(
 async def get_available_receivers(
     u_id: str,
     db: Session = Depends(get_db),
-    current_admin=Depends(get_current_admin),
+    current_branch_manager=Depends(get_current_branch_manager),
 ):
     """이관 가능한 수신자 목록 조회"""
     return await admin_service.get_available_receivers(u_id, db)
@@ -121,7 +121,7 @@ async def get_handovers(
     search: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     db: Session = Depends(get_db),
-    current_admin=Depends(get_current_admin),
+    current_branch_manager=Depends(get_current_branch_manager),
 ):
     """인수인계 목록 조회"""
     return await admin_service.get_handovers(search, status, db)
@@ -131,7 +131,7 @@ async def get_handovers(
 async def get_employee_customers(
     u_id: str,
     db: Session = Depends(get_db),
-    current_admin=Depends(get_current_admin),
+    current_branch_manager=Depends(get_current_branch_manager),
 ):
     """직원의 고객 목록 조회"""
     return await admin_service.get_employee_customers(u_id, db)
@@ -142,7 +142,7 @@ async def transfer_customers(
     u_id: str,
     request: TransferRequest,
     db: Session = Depends(get_db),
-    current_admin=Depends(get_current_admin),
+    current_branch_manager=Depends(get_current_branch_manager),
 ):
     """고객 이관 처리"""
     return await admin_service.transfer_customers(u_id, request, db)
