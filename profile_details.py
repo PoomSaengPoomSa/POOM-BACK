@@ -30,8 +30,8 @@ async def profile_trend_dashboard_details():
         print(f"ES Pol News took: {(time.time() - t0)*1000:.2f} ms")
         
         t0 = time.time()
-        r3 = await client.post(f"{ES_HOST}/sbs_news/_search", json={"query": {"term": {"category": "머그"}}, "size": 5})
-        print(f"ES Mug News took: {(time.time() - t0)*1000:.2f} ms")
+        r3 = await client.post(f"{ES_HOST}/sbs_news/_search", json={"query": {"term": {"category": "국제"}}, "size": 5})
+        print(f"ES Intl News took: {(time.time() - t0)*1000:.2f} ms")
     print(f"Total ES sequential requests took: {(time.time() - start)*1000:.2f} ms")
     
     # 2. Measure Elasticsearch parallel posts (asyncio.gather)
@@ -40,7 +40,7 @@ async def profile_trend_dashboard_details():
         res = await asyncio.gather(
             client.post(f"{ES_HOST}/sbs_news/_search", json={"query": {"term": {"category": "경제"}}, "size": 5}),
             client.post(f"{ES_HOST}/sbs_news/_search", json={"query": {"term": {"category": "정치"}}, "size": 5}),
-            client.post(f"{ES_HOST}/sbs_news/_search", json={"query": {"term": {"category": "머그"}}, "size": 5})
+            client.post(f"{ES_HOST}/sbs_news/_search", json={"query": {"term": {"category": "국제"}}, "size": 5})
         )
     print(f"Total ES parallel (gather) requests took: {(time.time() - start)*1000:.2f} ms")
 
