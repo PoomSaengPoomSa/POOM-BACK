@@ -60,6 +60,9 @@ class CustomerDetailResponse(BaseModel):
     start_date: Optional[date] = None
     grade: str
     llm_insight: Optional[str] = None
+    features: Optional[str] = None
+    update_time: Optional[datetime] = None
+    analysis_time: Optional[datetime] = None
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -175,7 +178,7 @@ class GenerateReportRequest(BaseModel):
 
 
 class GenerateReportData(BaseModel):
-    cm_id: int
+    cm_id: Optional[int] = None
     customer_name: str
     main_content: str
     special_remarks: str
@@ -197,7 +200,7 @@ class SaveReportContent(BaseModel):
 
 
 class SaveReportRequest(BaseModel):
-    cm_id: int
+    cm_id: Optional[int] = None
     memo: Optional[str] = None
     consult_date: Optional[str] = None
     content: SaveReportContent

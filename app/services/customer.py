@@ -221,25 +221,18 @@ def get_main_product_match(
     customer_id: int, current_user, db: Session
 ) -> MainProductMatchResponse:
     """주력 상품 매칭"""
-    from app.models.product import ProductMatching, CustomerProduct
+    from app.models.product import ProductMatching, CustomerProduct, Product
     from app.schemas.customer import ProductMatchItem
+    from app.models.customer import Customer
 
-    # Query all matching records for the customer, ordered by created_date desc
-    matchings = (
-        db.query(ProductMatching)
-        .options(joinedload(ProductMatching.product))
-        .filter(ProductMatching.c_id == customer_id)
-        .order_by(ProductMatching.created_date.desc())
+    # 1. is_main이 1 (True)인 주력 상품 목록 조회
+    main_products = (
+        db.query(Product)
+        .filter(Product.is_main == True)
         .all()
     )
 
-    # Filter to get only the most recent matching for each unique pd_id
-    unique_matchings = {}
-    for m in matchings:
-        if m.pd_id not in unique_matchings:
-            unique_matchings[m.pd_id] = m
-
-    # Query owned product ids for this customer
+    # 2. 고객의 보유 상품 pd_id 목록 조회
     owned_product_ids = {
         cp.pd_id
         for cp in db.query(CustomerProduct.pd_id)
@@ -247,21 +240,47 @@ def get_main_product_match(
         .all()
     }
 
+    # 3. 고객의 상품 매칭 데이터 조회 (최신순)
+    matchings = (
+        db.query(ProductMatching)
+        .filter(ProductMatching.c_id == customer_id)
+        .order_by(ProductMatching.created_date.desc())
+        .all()
+    )
+
+    unique_matchings = {}
+    for m in matchings:
+        if m.pd_id not in unique_matchings:
+            unique_matchings[m.pd_id] = m
+
+    # 4. 고객 투자성향 조회 (매칭 데이터 없을 때를 대비한 기본 사유 작성을 위함)
+    customer = db.query(Customer).filter(Customer.c_id == customer_id).first()
+    tendency = customer.tendency if customer and customer.tendency else "안정추구형"
+
     items = []
-    # Map the unique matchings to ProductMatchItem DTOs
-    for m in unique_matchings.values():
-        if m.product:
-            is_owned = m.pd_id in owned_product_ids
-            items.append(
-                ProductMatchItem(
-                    product_name=m.product.name,
-                    product_explanation=m.product.explanation,
-                    is_suitable=m.is_suitable,
-                    reason=m.reason,
-                    product_type=m.product.type,
-                    is_owned=is_owned,
-                )
+    # 5. 주력 상품을 기준으로 DTO 데이터 생성
+    for prod in main_products:
+        is_owned = prod.pd_id in owned_product_ids
+        
+        # 해당 주력 상품의 매칭 이력이 매칭 테이블에 존재하는지 확인
+        matching = unique_matchings.get(prod.pd_id)
+        if matching:
+            is_suitable = matching.is_suitable
+            reason = matching.reason
+        else:
+            is_suitable = 1 # 기본값 적합 (Integer)
+            reason = f"고객님의 투자 성향({tendency})에 적합한 상품입니다."
+
+        items.append(
+            ProductMatchItem(
+                product_name=prod.name,
+                product_explanation=prod.explanation,
+                is_suitable=is_suitable,
+                reason=reason,
+                product_type=prod.type,
+                is_owned=is_owned,
             )
+        )
 
     return MainProductMatchResponse(items=items)
 
@@ -375,7 +394,7 @@ def get_customer_memos(
     from app.models.consultation import ConsultationMemo, ConsultationReport
     from app.schemas.customer import TimelineItem, TimelineContent, ScrollInfo
     
-    query = db.query(ConsultationMemo).join(ConsultationMemo.report).options(joinedload(ConsultationMemo.report)).filter(ConsultationMemo.c_id == customer_id)
+    query = db.query(ConsultationMemo).outerjoin(ConsultationMemo.report).options(joinedload(ConsultationMemo.report)).filter(ConsultationMemo.c_id == customer_id)
     
     # Cursor pagination
     if cursor:
@@ -573,6 +592,7 @@ def run_llm_structure_memo(memo_text: str):
     cwd = os.path.join(POOM_AI_DIR, "llm", "consult_assist")
     
     try:
+        env = {**os.environ, "PYTHONUTF8": "1"}
         process = subprocess.Popen(
             [python_exe, script_path],
             stdin=subprocess.PIPE,
@@ -580,6 +600,8 @@ def run_llm_structure_memo(memo_text: str):
             stderr=subprocess.PIPE,
             text=True,
             encoding='utf-8',
+            errors='replace',
+            env=env,
             cwd=cwd
         )
         stdout, stderr = process.communicate(input=memo_text)
@@ -599,8 +621,7 @@ def generate_ai_report(
     current_user,
     db: Session,
 ) -> GenerateReportResponse:
-    """메모어시스턴트 AI 보고서 생성 및 consultation_memo 선제 적재"""
-    from app.models.consultation import ConsultationMemo
+    """메모어시스턴트 AI 보고서 생성"""
     
     customer = db.query(Customer).filter(Customer.c_id == customer_id).first()
     if not customer:
@@ -620,25 +641,6 @@ def generate_ai_report(
             detail=f"AI 보고서 생성 중 오류가 발생했습니다: {str(e)}"
         )
         
-    # 2. 날짜 파싱 및 consultation_memo에 원본 저장
-    try:
-        parsed_date = datetime.strptime(request.consult_date, "%Y-%m-%d %H:%M:%S")
-    except (ValueError, TypeError):
-        try:
-            parsed_date = datetime.strptime(request.consult_date.split(" ")[0], "%Y-%m-%d")
-        except (ValueError, TypeError, IndexError):
-            parsed_date = datetime.now()
-            
-    new_memo = ConsultationMemo(
-        consult_date=parsed_date,
-        memo=memo_text,
-        c_id=customer_id,
-        u_id=current_user.id
-    )
-    db.add(new_memo)
-    db.commit()
-    db.refresh(new_memo)
-    
     # 3. LLM 결과 매핑 및 줄바꿈 처리
     def clean_item(item: str) -> str:
         if not item:
@@ -670,7 +672,7 @@ def generate_ai_report(
         status=200,
         message="AI 보고서 생성 성공",
         data=GenerateReportData(
-            cm_id=new_memo.cm_id,
+            cm_id=None,
             customer_name=customer_name or "고객",
             main_content=main_content,
             special_remarks=special_remarks,
@@ -691,12 +693,15 @@ def run_customer_feature_agent(customer_id: int):
     
     try:
         print(f"[Background] Starting Customer Feature Agent for Customer ID: {customer_id}")
+        env = {**os.environ, "PYTHONUTF8": "1"}
         process = subprocess.Popen(
             [python_exe, script_path, "--c_id", str(customer_id)],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
             encoding='utf-8',
+            errors='replace',
+            env=env,
             cwd=cwd
         )
         stdout, stderr = process.communicate()
@@ -715,17 +720,35 @@ def save_ai_report(
     db: Session,
     background_tasks: BackgroundTasks = None,
 ) -> SaveReportResponse:
-    """AI 보고서 저장 (consultation_report 단독 적재)"""
+    """AI 보고서 및 원본 상담 메모 저장"""
     from app.models.consultation import ConsultationMemo, ConsultationReport
     from app.schemas.customer import SaveReportResponseData
     
-    # 전달받은 cm_id가 유효한지 검증
-    memo = db.query(ConsultationMemo).filter(ConsultationMemo.cm_id == request.cm_id).first()
-    if not memo:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="연관된 상담 메모를 찾을 수 없습니다.",
+    cm_id = request.cm_id
+    memo_record = None
+    
+    if not cm_id:
+        memo_text = request.memo or ""
+        parsed_date = datetime.now()
+        
+        memo_record = ConsultationMemo(
+            consult_date=parsed_date,
+            memo=memo_text,
+            c_id=customer_id,
+            u_id=current_user.id
         )
+        db.add(memo_record)
+        db.commit()
+        db.refresh(memo_record)
+        cm_id = memo_record.cm_id
+    else:
+        # 전달받은 cm_id가 유효한지 검증
+        memo_record = db.query(ConsultationMemo).filter(ConsultationMemo.cm_id == cm_id).first()
+        if not memo_record:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="연관된 상담 메모를 찾을 수 없습니다.",
+            )
         
     # consultation_report에 적재
     new_report = ConsultationReport(
@@ -733,7 +756,7 @@ def save_ai_report(
         special_notes=request.content.special_remarks,
         follow_up_actions=request.content.follow_up,
         summary=request.content.summary or "",
-        cm_id=request.cm_id
+        cm_id=cm_id
     )
     db.add(new_report)
     db.commit()
@@ -743,13 +766,13 @@ def save_ai_report(
     if background_tasks:
         background_tasks.add_task(run_customer_feature_agent, customer_id)
         
-    created_at_str = memo.consult_date.strftime("%Y-%m-%d %H:%M:%S")
+    created_at_str = memo_record.consult_date.strftime("%Y-%m-%d %H:%M:%S")
     
     return SaveReportResponse(
         status=201,
         message="보고서 저장 성공",
         data=SaveReportResponseData(
-            cm_id=request.cm_id,
+            cm_id=cm_id,
             cr_id=new_report.cr_id,
             created_at=created_at_str,
         )
@@ -782,6 +805,7 @@ def simulator_chat(
     cwd = os.path.join(POOM_AI_DIR, "llm", "consult_assist")
     
     try:
+        env = {**os.environ, "PYTHONUTF8": "1"}
         process = subprocess.Popen(
             [python_exe, script_path, str(customer_id)],
             stdin=subprocess.PIPE,
@@ -789,6 +813,8 @@ def simulator_chat(
             stderr=subprocess.PIPE,
             text=True,
             encoding='utf-8',
+            errors='replace',
+            env=env,
             cwd=cwd
         )
         stdout, stderr = process.communicate(input=question)

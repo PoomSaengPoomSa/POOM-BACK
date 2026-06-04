@@ -68,19 +68,17 @@ CREATE TABLE CUSTOMER (
     loan BIGINT NOT NULL,
     net_worth BIGINT NOT NULL,
     marital_status BOOLEAN NOT NULL,
-    start_date DATE DEFAULT (CURRENT_DATE)
+    start_date DATE DEFAULT (CURRENT_DATE),
+    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    analysis_time DATETIME NULL
 );
 
 CREATE TABLE CUSTOMER_RELATIONSHIP (
     cr_id INT AUTO_INCREMENT PRIMARY KEY,
     c_id INT NOT NULL,
-    relationship VARCHAR(20) NOT NULL,
-    birthday DATE NOT NULL,
-    job VARCHAR(50),
-    is_spouse BOOLEAN NOT NULL,
-    wedding_date DATE,
-    FOREIGN KEY (c_id) REFERENCES CUSTOMER(c_id),
-    CONSTRAINT chk_wedding_date CHECK (is_spouse = TRUE OR wedding_date IS NULL)
+    relationship VARCHAR(50) NOT NULL,
+    information TEXT,
+    FOREIGN KEY (c_id) REFERENCES CUSTOMER(c_id)
 );
 
 CREATE TABLE CUSTOMER_INFORMATION (

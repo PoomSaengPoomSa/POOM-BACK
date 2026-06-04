@@ -38,6 +38,9 @@ class Customer(Base):
     start_date = Column(Date, default=func.current_date())
     grade = Column(String(30), nullable=False)
     llm_insight = Column(Text, nullable=True)
+    features = Column(Text, nullable=True)
+    update_time = Column(DateTime, default=func.now(), onupdate=func.now(), nullable=False)
+    analysis_time = Column(DateTime, nullable=True)
 
     __table_args__ = (
         CheckConstraint("gender IN ('M', 'F')", name="ck_customer_gender"),
@@ -60,10 +63,11 @@ class CustomerRelationship(Base):
 
     cr_id = Column(Integer, primary_key=True, autoincrement=True)
     c_id = Column(Integer, ForeignKey("customer.c_id"), nullable=False)
-    relationship_ = Column("relationship", String(20), nullable=False)
-    birthday = Column(Date, nullable=False)
+    relationship_ = Column("relationship", String(50), nullable=False)
+    information = Column(Text)
+    birthday = Column(Date)
     job = Column(String(50))
-    is_spouse = Column(Boolean, nullable=False)
+    is_spouse = Column(Boolean)
     wedding_date = Column(Date)
 
     # Relationships

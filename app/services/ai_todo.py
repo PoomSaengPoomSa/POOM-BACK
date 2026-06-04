@@ -1,3 +1,8 @@
+import subprocess
+import sys
+import platform
+import logging
+from pathlib import Path
 from typing import Optional
 from sqlalchemy.orm import Session
 from app.models.ai_todo import AiTodo
@@ -9,6 +14,8 @@ from app.schemas.ai_todo import (
     AiTodoConfirmResponse,
     AiTodoUnconfirmResponse,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def get_ai_todos(
@@ -131,3 +138,65 @@ def unconfirm_ai_todo(
         
     db.commit()
     return AiTodoUnconfirmResponse(message="성공적으로 취소되었습니다.", success=True)
+
+
+def delete_ai_todo(at_id: int, current_user, db: Session) -> dict:
+    """AI 투두 숨김 (DB 삭제)"""
+    todo = db.query(AiTodo).filter(AiTodo.at_id == at_id).first()
+    if not todo:
+        from fastapi import HTTPException, status
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="AI 투두를 찾을 수 없습니다."
+        )
+    db.delete(todo)
+    db.commit()
+    return {"message": "추천 일정이 성공적으로 삭제되었습니다."}
+
+
+def run_ai_todo_agent_subprocess(u_id: str, target_date: str) -> None:
+    """POOM-AI LangGraph To-Do Agent를 서브프로세스로 구동하여 일정을 자동 기획하고 DB에 적재합니다."""
+    try:
+        # app/services/ai_todo.py 기준 상위 폴더들을 거슬러 올라가 POOM 최상위 루트 디렉토리를 구동합니다.
+        # Path(__file__) = .../POOM-BACK/app/services/ai_todo.py
+        current_file_path = Path(__file__).resolve()
+        root_dir = current_file_path.parent.parent.parent.parent
+        
+        poom_ai_dir = root_dir / "POOM-AI"
+        
+        # 운영체제에 부합하는 파이썬 실행기 경로 매핑
+        if platform.system() == "Windows":
+            python_exe = poom_ai_dir / ".venv" / "Scripts" / "python.exe"
+        else:
+            python_exe = poom_ai_dir / ".venv" / "bin" / "python"
+            
+        script_path = poom_ai_dir / "agent" / "todo" / "main.py"
+        cwd = poom_ai_dir / "agent" / "todo"
+        
+        # 가상환경 파이썬이 실존하지 않으면 시스템 파이썬(python3/python)으로 대체
+        if not python_exe.exists():
+            python_exe = "python3" if platform.system() != "Windows" else "python"
+            logger.warning(f"POOM-AI 가상환경 파이썬을 찾을 수 없어 시스템 실행기({python_exe})로 대체 시도합니다.")
+            
+        cmd = [str(python_exe), str(script_path), "--u_id", u_id, "--date", target_date]
+        
+        logger.info(f"[Background Task] LangGraph AI To-Do Agent 구동 시작: {' '.join(cmd)}")
+        
+        # 백그라운드에서 실행을 모니터링하여 로그를 기록
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding='utf-8',
+            cwd=str(cwd)
+        )
+        stdout, stderr = process.communicate()
+        
+        if process.returncode != 0:
+            logger.error(f"[Background Task] LangGraph AI To-Do Agent 실행 오류:\n{stderr}")
+        else:
+            logger.info(f"[Background Task] LangGraph AI To-Do Agent 성공적으로 완료:\n{stdout}")
+            
+    except Exception as e:
+        logger.error(f"[Background Task] LangGraph AI To-Do Agent 구동 중 예외 발생: {e}", exc_info=True)

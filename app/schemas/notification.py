@@ -15,6 +15,8 @@ class NotificationResponse(BaseModel):
     state_us: str
     u_id: str
     s_id: Optional[int] = None
+    c_id: Optional[int] = None
+    days_diff: int
 
     model_config = ConfigDict(
         from_attributes=True,

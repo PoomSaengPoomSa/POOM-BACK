@@ -34,10 +34,74 @@ def fire_and_forget(coro):
 logger = logging.getLogger(__name__)
 
 
+async def start_periodic_visit_briefing_scheduler():
+    logger.info("⏳ 방문 예정 브리핑 백그라운드 스케줄러가 시작되었습니다. (10분 주기)")
+    while True:
+        try:
+            logger.info("[Scheduler] 백그라운드 방문 브리핑 주기 검사 시작")
+            from app.database import SessionLocal
+            from app.models.schedule import Schedule
+            from app.models.notification import Notification
+            from datetime import datetime, date, timedelta
+            
+            db = SessionLocal()
+            try:
+                today = date.today()
+                now = datetime.now()
+                # 10분 주기에 맞추어 다음 40분 이내 일정을 조회하여 누락 방지
+                forty_mins_later = now + timedelta(minutes=40)
+                
+                # 오늘 자 상담 일정 중 아직 브리핑 알림이 생성되지 않았고, 
+                # 시작 시각이 현재~40분 뒤 범위 내에 들어오는 일정 조회
+                target_schedules = db.query(Schedule).filter(
+                    Schedule.category == "상담",
+                    Schedule.c_id.isnot(None),
+                    Schedule.execution_date >= datetime.combine(today, datetime.min.time()),
+                    Schedule.execution_date <= datetime.combine(today, datetime.max.time()),
+                    Schedule.execution_date >= now,
+                    Schedule.execution_date <= forty_mins_later
+                ).all()
+                
+                for s in target_schedules:
+                    # 해당 일정에 대해 이미 브리핑 알림이 생성되었는지 체크
+                    dup = db.query(Notification).filter(
+                        Notification.category == "방문 예정 브리핑",
+                        Notification.s_id == s.s_id
+                    ).first()
+                    
+                    if not dup:
+                        logger.info(f"[Scheduler] 40분 이내 방문 예정 일정 발견! 실시간 브리핑 백그라운드 생성 (s_id: {s.s_id}, 고객: {s.c_id})")
+                        from app.services.notification import run_notification_generator
+                        if run_notification_generator:
+                            # 백그라운드에서 동적 생성 및 트랜잭션 커밋
+                            run_notification_generator(s.u_id, today.strftime("%Y-%m-%d"), db=db)
+                            db.commit()
+            except Exception as e:
+                logger.error(f"[Scheduler] 백그라운드 스케줄러 처리 중 오류 발생: {e}", exc_info=True)
+            finally:
+                db.close()
+            
+            # 검사 완료 후 10분 대기 (600초)
+            await asyncio.sleep(600)
+        except asyncio.CancelledError:
+            logger.info("⏳ 방문 예정 브리핑 백그라운드 스케줄러가 정상 종료되었습니다.")
+            break
+        except Exception as e:
+            logger.error(f"[Scheduler] 백그라운드 루프 치명적 에러: {e}", exc_info=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("🚀 POOM API 서버가 시작되었습니다.")
+    # 백그라운드 스케줄러 태스크 실행
+    scheduler_task = asyncio.create_task(start_periodic_visit_briefing_scheduler())
     yield
+    # 서버 종료 시 태스크 취소
+    scheduler_task.cancel()
+    try:
+        await scheduler_task
+    except asyncio.CancelledError:
+        pass
     logger.info("👋 POOM API 서버가 종료됩니다.")
 
 
@@ -49,21 +113,30 @@ app = FastAPI(
 
 settings = get_settings()
 ES_HOST = settings.ES_HOST
+LOGSTASH_HOST = settings.LOGSTASH_HOST
 
 # 5초 유지, 최대 1만 개까지만 저장 (메모리 누수 방지)
 _emp_log_dedup = TTLCache(maxsize=10000, ttl=5)
 
 async def send_log_async(es_host: str, index: str, log_data: dict):
-    """범용 비동기 ES 로그 적재 함수"""
+    """범용 비동기 ES/Logstash 로그 적재 함수"""
     async with httpx.AsyncClient(timeout=3.0) as client:
         try:
+            if LOGSTASH_HOST:
+                # Logstash HTTP 입력 플러그인에 맞게 전송 (경로가 인덱스 역할을 하도록 설계)
+                url = f"{LOGSTASH_HOST}/{index}"
+                dest = "Logstash"
+            else:
+                url = f"{es_host}/{index}/_doc"
+                dest = "ES"
+
             await client.post(
-                f"{es_host}/{index}/_doc",
+                url,
                 json=log_data,
                 headers={"bypass-tunnel-reminder": "true"}
             )
         except Exception as e:
-            logger.warning(f"[{index}] ES 적재 실패: {e!r}")
+            logger.warning(f"[{index}] {dest} 적재 실패: {e!r}")
 
 async def send_emp_log_with_info_async(user_id: str, feature: str, timestamp: str):
     """DB에서 PB 정보 조회 후 비동기 적재"""

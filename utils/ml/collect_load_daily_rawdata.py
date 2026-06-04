@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 import requests
 import pandas as pd
@@ -7,6 +8,12 @@ import yfinance as yf
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
+
+# Windows 환경에서 콘솔 출력 인코딩 문제 해결 (cp949로 인한 emoji 출력 에러 방지)
+if sys.platform.startswith('win'):
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 # ═══════════════════════════════════════════════════
 #  공통 환경 및 날짜 설정 (최근 60일 치만 수집하여 계산 보정)
@@ -225,9 +232,13 @@ def upload_new_records(df, table_name, engine):
 #  3. 메인 실행 파이프라인
 # ═══════════════════════════════════════════════════
 def run_daily_pipeline():
-    # 경로 3단계 위로 수정
+    # 경로 3단계 위로 수정 (POOM-BACK 루트)
     base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    load_dotenv(dotenv_path=os.path.join(base_dir, '.env'))
+    env_path = os.path.join(base_dir, '.env')
+    # .env 파일이 POOM-BACK 루트에 없고 상위(poom) 루트에 있다면 상위 경로 사용
+    if not os.path.exists(env_path):
+        env_path = os.path.join(os.path.dirname(base_dir), '.env')
+    load_dotenv(dotenv_path=env_path)
 
     # API Keys & DB Config
     ecos_key = os.getenv('ECOS_API_KEY')
