@@ -37,6 +37,7 @@ import time
 AI_NEWS_CACHE = {
     "economy": {"summary": "", "updated_at": 0.0},
     "politics": {"summary": "", "updated_at": 0.0},
+    "international": {"summary": "", "updated_at": 0.0},
     "itScience": {"summary": "", "updated_at": 0.0}
 }
 CACHE_EXPIRE_SECONDS = 3600  # 1 hour
@@ -99,7 +100,7 @@ async def get_trend_dashboard(current_user, db: Session) -> TrendDashboardRespon
     """트렌드 대시보드 조회 (Elasticsearch 우선조회 후 MySQL 폴백)"""
     economy_news = []
     politics_news = []
-    it_news = []
+    international_news = []
     
     # 1. Elasticsearch에서 기사 조회 시도 (카테고리별 최신 5건)
     try:
@@ -123,7 +124,7 @@ async def get_trend_dashboard(current_user, db: Session) -> TrendDashboardRespon
             resp_mug = await client.post(
                 f"{ES_HOST}/sbs_news/_search",
                 json={
-                    "query": {"term": {"category": "머그"}},
+                    "query": {"term": {"category": "국제"}},
                     "sort": [{"published_at": {"order": "desc"}}],
                     "size": 5
                 }
@@ -148,7 +149,7 @@ async def get_trend_dashboard(current_user, db: Session) -> TrendDashboardRespon
                     for hit in resp_pol.json().get("hits", {}).get("hits", [])
                 ]
             if resp_mug.status_code == 200:
-                it_news = [
+                international_news = [
                     {
                         "id": hit["_id"],
                         "title": hit["_source"].get("title", ""),
@@ -162,8 +163,9 @@ async def get_trend_dashboard(current_user, db: Session) -> TrendDashboardRespon
     news_data = {
         "economy": economy_news,
         "politics": politics_news,
-        "itScience": it_news,
-        "it": it_news,
+        "international": international_news,
+        "itScience": international_news,
+        "it": international_news,
     }
 
     # 2. 금값 및 부동산 지표 동적 조회
@@ -393,21 +395,27 @@ async def get_trend_dashboard(current_user, db: Session) -> TrendDashboardRespon
     ai_summaries = {}
     current_time = time.time()
     
-    for cat_key, articles in [("economy", economy_news), ("politics", politics_news), ("itScience", it_news)]:
+    for cat_key, articles in [("economy", economy_news), ("politics", politics_news), ("international", international_news)]:
         cache_data = AI_NEWS_CACHE[cat_key]
-        if not cache_data["summary"] or (current_time - cache_data["updated_at"] > CACHE_EXPIRE_SECONDS):
-            cat_name = "경제" if cat_key == "economy" else "정치" if cat_key == "politics" else "IT/과학"
+        if not cache_data["summary"] or (current_time - cache_data["updated_at"] > CACHE_EXPIRE_SECONDS) or any(cache_data["summary"].startswith(x) for x in ["- 최신 기사가 아직 수집되지 않았습니다.", "- 실시간 AI 요약 브리핑을"]):
+            cat_name = "경제" if cat_key == "economy" else "정치" if cat_key == "politics" else "국제"
             summary_txt = await fetch_ai_news_summary(cat_name, articles)
-            if summary_txt and not summary_txt.startswith("- 실시간 AI 요약 브리핑을 생성하는 도중") and not summary_txt.startswith("- 실시간 AI 요약 브리핑을 준비"):
+            if summary_txt and not any(summary_txt.startswith(x) for x in [
+                "- 실시간 AI 요약 브리핑을 생성하는 도중",
+                "- 실시간 AI 요약 브리핑을 준비",
+                "- 최신 기사가 아직 수집되지 않았습니다."
+            ]):
                 AI_NEWS_CACHE[cat_key] = {
                     "summary": summary_txt,
                     "updated_at": current_time
                 }
                 ai_summaries[cat_key] = summary_txt
             else:
-                ai_summaries[cat_key] = cache_data["summary"] if cache_data["summary"] else summary_txt
+                ai_summaries[cat_key] = summary_txt
         else:
             ai_summaries[cat_key] = cache_data["summary"]
+
+    ai_summaries["itScience"] = ai_summaries.get("international", "")
 
     return {
         "news": news_data,
@@ -471,12 +479,14 @@ async def get_news_list(
             cat_map = {
                 "경제": "경제",
                 "정치": "정치",
-                "사회": "머그",
-                "IT/과학": "머그",
+                "국제": "국제",
+                "사회": "국제",
+                "IT/과학": "국제",
                 "economy": "경제",
                 "politics": "정치",
-                "it": "머그",
-                "itScience": "머그"
+                "international": "국제",
+                "it": "국제",
+                "itScience": "국제"
             }
             mapped_cat = cat_map.get(category, category)
             es_filters.append({"term": {"category": mapped_cat}})
@@ -519,8 +529,8 @@ async def get_news_list(
                 for hit in hits_list:
                     source = hit.get("_source", {})
                     cat = source.get("category", "일반")
-                    if cat in ["머그", "사회"]:
-                        cat = "사회"
+                    if cat in ["머그", "사회", "국제"]:
+                        cat = "국제"
                     pub_at_str = source.get("published_at", "")
                     if pub_at_str:
                         pub_at_str = pub_at_str.split("T")[0] if "T" in pub_at_str else pub_at_str[:10]
@@ -581,8 +591,8 @@ async def get_news_detail(
                     tags = tags.split(",") if tags else []
                     
                 cat = source.get("category", "일반")
-                if cat in ["머그", "사회"]:
-                    cat = "사회"
+                if cat in ["머그", "사회", "국제"]:
+                    cat = "국제"
                     
                 return NewsDetailResponse(
                     newsId=news_id,
