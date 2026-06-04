@@ -293,34 +293,19 @@ def seed_data():
 
         reports = [
             TrendLlmReport(
-                report_id=str(uuid.uuid4()),
                 type="gold",
-                model_name="claude-3-5-sonnet",
-                language="ko",
                 content=gold_report,
-                status="done",
                 created_at=datetime.datetime.utcnow(),
-                data_source="FRED, ECOS",
             ),
             TrendLlmReport(
-                report_id=str(uuid.uuid4()),
                 type="real_estate",
-                model_name="claude-3-5-sonnet",
-                language="ko",
                 content=re_report,
-                status="done",
                 created_at=datetime.datetime.utcnow(),
-                data_source="ECOS, K-RealEstate",
             ),
             TrendLlmReport(
-                report_id=str(uuid.uuid4()),
                 type="base_rate",
-                model_name="claude-3-5-sonnet",
-                language="ko",
                 content=br_report,
-                status="done",
                 created_at=datetime.datetime.utcnow(),
-                data_source="BOK, ECOS",
             ),
         ]
         db.add_all(reports)

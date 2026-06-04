@@ -63,11 +63,8 @@ class TrendLlmReport(Base):
     """LLM 생성 분석 보고서 테이블 모델"""
     __tablename__ = "trend_llm_report"
 
-    report_id = Column(String(50), primary_key=True)
+    report_id = Column(Integer, primary_key=True, autoincrement=True)
     type = Column(String(50), nullable=False)
-    model_name = Column(String(50), nullable=False, default="gpt-4")
-    language = Column(String(10), nullable=False, default="ko")
     content = Column(Text, nullable=False)
-    status = Column(String(20), nullable=False, default="done")  # pending, running, done, failed
+    summary = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    data_source = Column(String(255), nullable=True)
