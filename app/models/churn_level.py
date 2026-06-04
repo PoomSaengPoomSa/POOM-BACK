@@ -2,6 +2,7 @@ from sqlalchemy import (
     Column,
     Integer,
     String,
+    Text,
     DateTime,
     ForeignKey,
     CheckConstraint,
@@ -19,6 +20,7 @@ class ChurnLevel(Base):
     c_id = Column(Integer, ForeignKey("customer.c_id"), nullable=False)
     grade = Column(String(5))
     reason = Column(String(100), nullable=False)
+    explain_reason = Column(Text, nullable=True)
     created_date = Column(DateTime, default=func.now())
 
     __table_args__ = (

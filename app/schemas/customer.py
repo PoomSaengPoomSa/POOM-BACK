@@ -108,6 +108,7 @@ class ChurnRiskResponse(BaseModel):
     customer_id: int
     grade: Optional[str] = None
     reason: Optional[str] = None
+    explain_reason: Optional[str] = None
     created_date: Optional[datetime] = None
 
 

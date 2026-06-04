@@ -151,6 +151,7 @@ CREATE TABLE CHURN_LEVEL (
     c_id INT NOT NULL,
     grade VARCHAR(5) CHECK (grade IN ('양호', '주의', '위험')),
     reason VARCHAR(100) NOT NULL,
+    explain_reason TEXT,
     created_date DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (c_id) REFERENCES CUSTOMER(c_id)
 );

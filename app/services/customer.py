@@ -557,6 +557,7 @@ def get_churn_risk(
             customer_id=customer_id,
             grade=None,
             reason=None,
+            explain_reason=None,
             created_date=None,
         )
 
@@ -564,6 +565,7 @@ def get_churn_risk(
         customer_id=customer_id,
         grade=churn.grade,
         reason=churn.reason,
+        explain_reason=churn.explain_reason,
         created_date=churn.created_date,
     )
 
