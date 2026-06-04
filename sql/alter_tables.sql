@@ -136,3 +136,6 @@ DROP COLUMN is_spouse,
 DROP COLUMN wedding_date,
 ADD COLUMN information TEXT;
 ALTER TABLE CUSTOMER_RELATIONSHIP MODIFY COLUMN relationship VARCHAR(50) NOT NULL;
+
+-- CHURN_LEVEL 테이블에 explain_reason(판정 상세 설명) TEXT 컬럼 추가
+ALTER TABLE CHURN_LEVEL ADD COLUMN explain_reason TEXT AFTER reason;
