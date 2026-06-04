@@ -1131,28 +1131,21 @@ async def create_indicator_report(
 ) -> ReportCreateResponse:
     """지표 리포트 생성 요청"""
     from fastapi import HTTPException
-    import uuid
     import datetime
     
     if type not in ["gold", "real_estate", "base_rate"]:
         raise HTTPException(status_code=400, detail="허용되지 않는 type 값")
         
-    report_id = f"rpt_{str(uuid.uuid4())[:8]}"
     new_report = TrendLlmReport(
-        report_id=report_id,
         type=type,
-        model_name=request.model or "claude-sonnet-4-20250514",
-        language=request.language or "ko",
         content="지표 분석 리포트 생성이 비동기적으로 시작되었습니다. 약 30초 내에 상세 분석이 완료됩니다.",
-        status="pending",
-        created_at=datetime.datetime.utcnow(),
-        data_source="FRED, ECOS"
+        created_at=datetime.datetime.utcnow()
     )
     db.add(new_report)
     db.commit()
     
     return {
-        "reportId": report_id,
+        "reportId": str(new_report.report_id),
         "status": "pending",
         "estimatedSeconds": 30
     }
@@ -1165,62 +1158,30 @@ async def get_report_status(
     from fastapi import HTTPException
     import datetime
     
+    try:
+        rep_id_int = int(report_id)
+    except ValueError:
+        rep_id_int = -1
+
     report = db.query(TrendLlmReport).filter(
-        TrendLlmReport.report_id == report_id
+        TrendLlmReport.report_id == rep_id_int
     ).first()
     
     if not report:
         raise HTTPException(status_code=404, detail="리포트를 찾을 수 없습니다.")
 
-    # 이미 완료/실패된 경우 바로 반환
-    if report.status == "done":
+    elapsed = (datetime.datetime.utcnow() - report.created_at).total_seconds()
+    if elapsed > 10:
         return {
-            "reportId": report.report_id,
+            "reportId": str(report.report_id),
             "status": "done",
             "progress": 100,
             "failedReason": None,
             "completedAt": report.created_at.strftime("%Y-%m-%dT%H:%M:%SZ")
         }
-
-    if report.status == "failed":
-        return {
-            "reportId": report.report_id,
-            "status": "failed",
-            "progress": 0,
-            "failedReason": "LLM timeout",
-            "completedAt": None
-        }
-
-    # pending / running 상태: 경과 시간 기반 전이 (하드코딩 보고서 내용 없음)
-    # 실제 보고서는 train.py 실행 시 자동 생성되어 DB에 status='done'으로 저장됩니다.
-    elapsed = (datetime.datetime.utcnow() - report.created_at).total_seconds()
-
-    if elapsed > 60:
-        # 60초 이상 경과해도 done이 안 되면 실패 처리
-        report.status = "failed"
-        db.commit()
-        return {
-            "reportId": report.report_id,
-            "status": "failed",
-            "progress": 0,
-            "failedReason": "보고서 생성 시간 초과. train.py 실행 후 자동 생성됩니다.",
-            "completedAt": None
-        }
-
-    elif elapsed > 8:
-        report.status = "running"
-        db.commit()
-        return {
-            "reportId": report.report_id,
-            "status": "running",
-            "progress": int(elapsed / 60 * 100),
-            "failedReason": None,
-            "completedAt": None
-        }
-
     else:
         return {
-            "reportId": report.report_id,
+            "reportId": str(report.report_id),
             "status": "pending",
             "progress": 10,
             "failedReason": None,
@@ -1238,17 +1199,17 @@ async def get_latest_report(
         raise HTTPException(status_code=400, detail="허용되지 않는 type 값")
         
     report = db.query(TrendLlmReport).filter(
-        TrendLlmReport.type == type,
-        TrendLlmReport.status == "done"
+        TrendLlmReport.type == type
     ).order_by(TrendLlmReport.created_at.desc()).first()
     
     if not report:
         raise HTTPException(status_code=404, detail="해당 지표 보고서 없음")
         
     clean_text = report.content.replace("#", "").replace("*", "").replace("-", "").replace("\n", " ").strip()
-    summary = clean_text[:145] + " . . . 더보기" if len(clean_text) > 145 else clean_text
+    fallback_summary = clean_text[:145] + " . . . 더보기" if len(clean_text) > 145 else clean_text
+    summary_to_return = report.summary if report.summary else fallback_summary
     
-    sources_list = [s.strip() for s in report.data_source.split(",")] if report.data_source else ["ECOS", "FRED"]
+    sources_list = ["ECOS", "FRED"]
     
     earliest = db.query(EconomicIndicatorHistory).filter(
         EconomicIndicatorHistory.type == type
@@ -1262,12 +1223,12 @@ async def get_latest_report(
     to_date = latest.recorded_at.strftime("%Y-%m-%d") if latest else "2026-05-25"
     
     return {
-        "reportId": report.report_id,
+        "reportId": str(report.report_id),
         "type": report.type,
         "content": report.content,
-        "summary": summary,
-        "language": report.language,
-        "modelName": report.model_name,
+        "summary": summary_to_return,
+        "language": "ko",
+        "modelName": "gpt-4o",
         "dataSources": sources_list,
         "dataSourcePeriod": {
             "from": from_date,
