@@ -1,0 +1,39 @@
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+from typing import List, Optional
+from app.database import get_db
+from app.dependencies import get_current_user
+from app.schemas.notification import NotificationResponse, NotificationCountResponse
+from app.services import notification as notification_service
+
+router = APIRouter()
+
+
+@router.get("/notifications", response_model=List[NotificationResponse])
+def get_notifications(
+    tab: str = "all",
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """유저의 전체 또는 오늘 알림 리스트 조회"""
+    return notification_service.get_notifications(current_user, tab, db)
+
+
+@router.get("/notifications/today-count", response_model=NotificationCountResponse)
+def get_today_count(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """유저의 오늘 알림 개수 조회"""
+    count = notification_service.get_today_count(current_user, db)
+    return NotificationCountResponse(today_count=count)
+
+
+@router.get("/notifications/briefing/{customer_id}", response_model=Optional[NotificationResponse])
+def get_customer_briefing(
+    customer_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """특정 고객의 방문 예정 브리핑 조회"""
+    return notification_service.get_customer_briefing(current_user, customer_id, db)
