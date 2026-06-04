@@ -291,36 +291,43 @@ def seed_data():
             "내수 소비 지표의 침체와 건설 투자 위축이 가속화되면서 경제 전반의 연착륙을 유도하기 위해 한은 금융통화위원회가 하반기 중 기준금리 인하 사이클에 진입할 가능성이 대우 높습니다."
         )
 
+        gold_summary = (
+            "### [금값 분석 리포트]\n\n"
+            "향후 12개월간 금값은 3,890달러 수준으로 완만한 상승이 예상됩니다.\n\n"
+            "**1. 인플레이션 헷지 수요 지속**: 안전 자산 유입이 계속되어 하방 지지선이 견고합니다.\n"
+            "**2. 통화정책 완화 기조**: 연준의 추가 금리 인하 기대가 금 가격 상승을 지지합니다."
+        )
+        re_summary = (
+            "### [부동산 가격지수 분석 리포트]\n\n"
+            "서울 아파트 시장의 회복세를 지지할 것으로 보입니다.\n\n"
+            "**1. 매수세의 회복**: 대출 이자 부담 감소로 실수요자의 진입이 늘어납니다.\n"
+            "**2. 공급 대책의 영향**: 도심 주택 공급 확대 대책 발표로 아파트 가격 우상향 압력이 있습니다."
+        )
+        br_summary = (
+            "### [기준금리 전망 리포트]\n\n"
+            "한국 기준금리는 2.50%까지 단계적 인하가 전망됩니다.\n\n"
+            "**1. 물가상승률(CPI) 하향 안정**: 소비자물가가 2.0%대에 안착하여 인하 압력이 완화되었습니다.\n"
+            "**2. 경기 부양 필요성 확대**: 내수 침체 극복을 위해 금통위가 인하 사이클에 진입할 가능성이 높습니다."
+        )
+
         reports = [
             TrendLlmReport(
-                report_id=str(uuid.uuid4()),
                 type="gold",
-                model_name="claude-3-5-sonnet",
-                language="ko",
                 content=gold_report,
-                status="done",
+                summary=gold_summary,
                 created_at=datetime.datetime.utcnow(),
-                data_source="FRED, ECOS",
             ),
             TrendLlmReport(
-                report_id=str(uuid.uuid4()),
                 type="real_estate",
-                model_name="claude-3-5-sonnet",
-                language="ko",
                 content=re_report,
-                status="done",
+                summary=re_summary,
                 created_at=datetime.datetime.utcnow(),
-                data_source="ECOS, K-RealEstate",
             ),
             TrendLlmReport(
-                report_id=str(uuid.uuid4()),
                 type="base_rate",
-                model_name="claude-3-5-sonnet",
-                language="ko",
                 content=br_report,
-                status="done",
+                summary=br_summary,
                 created_at=datetime.datetime.utcnow(),
-                data_source="BOK, ECOS",
             ),
         ]
         db.add_all(reports)
