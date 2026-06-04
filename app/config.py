@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     DB_NAME: str = ""
 
     ES_HOST: str = ""
+    LOGSTASH_HOST: str = ""
     
     # External API Keys
     ECOS_API_KEY: str = ""

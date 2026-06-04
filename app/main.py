@@ -113,21 +113,30 @@ app = FastAPI(
 
 settings = get_settings()
 ES_HOST = settings.ES_HOST
+LOGSTASH_HOST = settings.LOGSTASH_HOST
 
 # 5초 유지, 최대 1만 개까지만 저장 (메모리 누수 방지)
 _emp_log_dedup = TTLCache(maxsize=10000, ttl=5)
 
 async def send_log_async(es_host: str, index: str, log_data: dict):
-    """범용 비동기 ES 로그 적재 함수"""
+    """범용 비동기 ES/Logstash 로그 적재 함수"""
     async with httpx.AsyncClient(timeout=3.0) as client:
         try:
+            if LOGSTASH_HOST:
+                # Logstash HTTP 입력 플러그인에 맞게 전송 (경로가 인덱스 역할을 하도록 설계)
+                url = f"{LOGSTASH_HOST}/{index}"
+                dest = "Logstash"
+            else:
+                url = f"{es_host}/{index}/_doc"
+                dest = "ES"
+
             await client.post(
-                f"{es_host}/{index}/_doc",
+                url,
                 json=log_data,
                 headers={"bypass-tunnel-reminder": "true"}
             )
         except Exception as e:
-            logger.warning(f"[{index}] ES 적재 실패: {e!r}")
+            logger.warning(f"[{index}] {dest} 적재 실패: {e!r}")
 
 async def send_emp_log_with_info_async(user_id: str, feature: str, timestamp: str):
     """DB에서 PB 정보 조회 후 비동기 적재"""
