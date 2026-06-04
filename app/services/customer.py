@@ -803,8 +803,8 @@ def simulator_chat(
     
     # 1. Run LLM Simulator via Subprocess
     python_exe = os.path.join(POOM_AI_DIR, ".venv", "Scripts", "python.exe")
-    script_path = os.path.join(POOM_AI_DIR, "llm", "consult_assist", "simulator.py")
-    cwd = os.path.join(POOM_AI_DIR, "llm", "consult_assist")
+    script_path = os.path.join(POOM_AI_DIR, "agent", "simulator", "simulator.py")
+    cwd = os.path.join(POOM_AI_DIR, "agent", "simulator")
     
     try:
         env = {**os.environ, "PYTHONUTF8": "1"}
@@ -888,7 +888,7 @@ def save_simulator_info(
     )
     
     # Ensure directory exists and write markdown file
-    ai_data_dir = os.path.join(POOM_AI_DIR, "llm", "consult_assist", "data")
+    ai_data_dir = os.path.join(POOM_AI_DIR, "agent", "simulator", "data")
     os.makedirs(ai_data_dir, exist_ok=True)
     
     md_path = os.path.join(ai_data_dir, f"customer_{customer_id}.md")
@@ -920,6 +920,7 @@ def get_simulator_info(
     """시뮬레이터 정보 조회 및 추가 입력사항 파싱"""
     from app.schemas.customer import SimulatorInfoResponse
     import os
+    import json
     
     customer = db.query(Customer).filter(Customer.c_id == customer_id).first()
     if not customer:
@@ -928,7 +929,7 @@ def get_simulator_info(
             detail="고객을 찾을 수 없습니다.",
         )
         
-    ai_data_dir = os.path.join(POOM_AI_DIR, "llm", "consult_assist", "data")
+    ai_data_dir = os.path.join(POOM_AI_DIR, "agent", "simulator", "data")
     
     md_path = os.path.join(ai_data_dir, f"customer_{customer_id}.md")
     txt_path = os.path.join(ai_data_dir, f"customer_{customer_id}.txt")
@@ -957,8 +958,19 @@ def get_simulator_info(
         except Exception:
             pass
             
+    # Load conversation history if exists
+    history = []
+    history_path = os.path.join(ai_data_dir, f"customer_{customer_id}_history.json")
+    if os.path.exists(history_path):
+        try:
+            with open(history_path, "r", encoding="utf-8") as f:
+                history = json.load(f)
+        except Exception:
+            pass
+            
     return SimulatorInfoResponse(
         exists=exists,
-        additional_notes=additional_notes
+        additional_notes=additional_notes,
+        history=history
     )
 

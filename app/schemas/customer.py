@@ -242,3 +242,4 @@ class SaveSimulatorInfoRequest(BaseModel):
 class SimulatorInfoResponse(BaseModel):
     exists: bool
     additional_notes: str
+    history: Optional[List[dict]] = None
