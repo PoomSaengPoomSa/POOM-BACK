@@ -586,34 +586,13 @@ def format_assets_to_str(asset_val):
 
 
 def run_llm_structure_memo(memo_text: str):
-    import subprocess
-    import json
-    
-    python_exe = os.path.join(POOM_AI_DIR, ".venv", "Scripts", "python.exe")
-    script_path = os.path.join(POOM_AI_DIR, "llm", "consult_assist", "consult_assistant.py")
-    cwd = os.path.join(POOM_AI_DIR, "llm", "consult_assist")
-    
+    import requests
     try:
-        env = {**os.environ, "PYTHONUTF8": "1"}
-        process = subprocess.Popen(
-            [python_exe, script_path],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding='utf-8',
-            errors='replace',
-            env=env,
-            cwd=cwd
-        )
-        stdout, stderr = process.communicate(input=memo_text)
-        
-        if process.returncode != 0:
-            raise Exception(f"LLM 스크립트 실행 실패: {stderr}")
-            
-        return json.loads(stdout)
+        response = requests.post("http://poom-ai:8001/api/v1/consult-assistant", json={"memo": memo_text}, timeout=60)
+        response.raise_for_status()
+        return response.json()
     except Exception as e:
-        print(f"Subprocess 실행 에러: {e}")
+        print(f"AI API 실행 에러: {e}")
         raise e
 
 
@@ -685,34 +664,15 @@ def generate_ai_report(
 
 
 def run_customer_feature_agent(customer_id: int):
-    """POOM-AI 고객 특징 추출 및 상품 매칭 에이전트(run_feature.py)를 백그라운드 서브프로세스로 실행"""
-    import subprocess
-    import os
-    
-    python_exe = os.path.join(POOM_AI_DIR, ".venv", "Scripts", "python.exe")
-    script_path = os.path.join(POOM_AI_DIR, "agent", "customer", "run_feature.py")
-    cwd = os.path.join(POOM_AI_DIR, "agent", "customer")
-    
+    """POOM-AI 고객 특징 추출 및 상품 매칭 에이전트를 백그라운드 API 호출로 실행"""
+    import requests
     try:
         print(f"[Background] Starting Customer Feature Agent for Customer ID: {customer_id}")
-        env = {**os.environ, "PYTHONUTF8": "1"}
-        process = subprocess.Popen(
-            [python_exe, script_path, "--c_id", str(customer_id)],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding='utf-8',
-            errors='replace',
-            env=env,
-            cwd=cwd
-        )
-        stdout, stderr = process.communicate()
-        if process.returncode != 0:
-            print(f"[-] Customer Feature Agent 실행 실패 (customer_id: {customer_id}): {stderr}")
-        else:
-            print(f"[+] Customer Feature Agent 실행 완료 (customer_id: {customer_id}):\n{stdout}")
+        response = requests.post("http://poom-ai:8001/api/v1/customer-feature", json={"c_id": customer_id}, timeout=120)
+        response.raise_for_status()
+        print(f"[+] Customer Feature Agent 실행 완료 (customer_id: {customer_id}): {response.json()}")
     except Exception as e:
-        print(f"[-] Customer Feature Agent subprocess 실행 중 에러 발생: {e}")
+        print(f"[-] Customer Feature Agent 실행 중 에러 발생 (customer_id: {customer_id}): {e}")
 
 
 def save_ai_report(
@@ -787,10 +747,9 @@ def simulator_chat(
     current_user,
     db: Session,
 ) -> SimulatorChatResponse:
-    """시뮬레이터 AI 질의 및 자산 시뮬레이션 (Subprocess 연동)"""
+    """시뮬레이터 AI 질의 및 자산 시뮬레이션 (FastAPI API 연동)"""
     from app.schemas.customer import SimulatorChatData
-    import subprocess
-    import json
+    import requests
     
     customer = db.query(Customer).filter(Customer.c_id == customer_id).first()
     if not customer:
@@ -801,33 +760,16 @@ def simulator_chat(
         
     question = request.question or ""
     
-    # 1. Run LLM Simulator via Subprocess
-    python_exe = os.path.join(POOM_AI_DIR, ".venv", "Scripts", "python.exe")
-    script_path = os.path.join(POOM_AI_DIR, "agent", "simulator", "simulator.py")
-    cwd = os.path.join(POOM_AI_DIR, "agent", "simulator")
-    
     try:
-        env = {**os.environ, "PYTHONUTF8": "1"}
-        process = subprocess.Popen(
-            [python_exe, script_path, str(customer_id)],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding='utf-8',
-            errors='replace',
-            env=env,
-            cwd=cwd
+        response = requests.post(
+            "http://poom-ai:8001/api/v1/simulator/chat", 
+            json={"c_id": customer_id, "question": question},
+            timeout=60
         )
-        stdout, stderr = process.communicate(input=question)
-        
-        if process.returncode != 0:
-            raise Exception(f"시뮬레이터 스크립트 실행 실패: {stderr}")
-            
-        res_data = json.loads(stdout)
-        answer = res_data.get("answer", "답변을 가져오지 못했습니다.")
+        response.raise_for_status()
+        answer = response.json()["answer"]
     except Exception as e:
-        print(f"Simulator Subprocess 실행 에러: {e}")
+        print(f"Simulator API 실행 에러: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"AI 시뮬레이터 응답을 생성하는 중 오류가 발생했습니다: {str(e)}"
