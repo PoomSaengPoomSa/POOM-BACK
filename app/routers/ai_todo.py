@@ -57,7 +57,7 @@ def delete_ai_todo(
 
 @router.post("/run", response_model=MessageResponse)
 def run_ai_todo_agent(
-    u_id: str = Query(..., description="PB ID"),
+    u_id: str = Query("all", description="PB ID (또는 'all'로 전체 PB 대상 구동)"),
     date: str = Query(..., description="분석 기준일 YYYY-MM-DD"),
     background_tasks: BackgroundTasks = BackgroundTasks(),
 ):
