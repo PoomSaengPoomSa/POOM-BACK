@@ -164,7 +164,7 @@ def ensure_today_notifications(current_user, db: Session):
 def get_notifications(
     current_user, tab: str, db: Session
 ) -> List[NotificationResponse]:
-    """유저 ID(u_id)에 따른 알림 리스트 조회 및 포맷팅"""
+    """유저 ID(u_id)에 따른 알림 리스트 조회 및 포맷팅 (방문 브리핑은 30분 전부터 노출)"""
     ensure_today_notifications(current_user, db)
     
     today_date = datetime.date.today()
@@ -175,7 +175,14 @@ def get_notifications(
     # 최신 알림 순 정렬
     notifs = query.order_by(Notification.created_time.desc()).all()
     
-    response_list = []
+    # 정렬 기준 시간 계산 함수 (방문 예정 브리핑은 예약 시간 기준, 나머지는 생성 시간 기준)
+    def get_sort_key(item_tuple):
+        n_obj, _ = item_tuple
+        if n_obj.category == "방문 예정 브리핑" and n_obj.schedule:
+            return n_obj.schedule.execution_date
+        return n_obj.created_time
+
+    paired = []
     
     for n in notifs:
         created_date = n.created_time.date()
@@ -185,32 +192,40 @@ def get_notifications(
         if tab == "today" and not is_today:
             continue
             
+        # '방문 예정 브리핑'의 경우, 현재 시간이 예약 시간(execution_date) 30분 전 이후일 때만 알림 제공
+        if n.category == "방문 예정 브리핑" and n.schedule:
+            now = datetime.datetime.now()
+            trigger_time = n.schedule.execution_date - datetime.timedelta(minutes=30)
+            if now < trigger_time:
+                continue
+                
         days_diff = (today_date - created_date).days
         
         # 프론트엔드가 요구하는 형식으로 매핑
-        response_list.append(
-            NotificationResponse(
-                id=n.n_id,
-                type=n.category or "안부 연락",
-                content=n.title,
-                date=format_date(n.created_time),
-                category=map_category_color(n.category),
-                today=is_today,
-                isBriefing=(n.category == "방문 예정 브리핑"),
-                expandedContent=[line.strip() for line in n.content.split("\n") if line.strip()] if n.content else [],
-                state_us=n.state_us,
-                u_id=n.u_id,
-                s_id=n.s_id,
-                c_id=n.c_id,
-                days_diff=days_diff,
-            )
+        resp = NotificationResponse(
+            id=n.n_id,
+            type=n.category or "안부 연락",
+            content=n.title,
+            date=format_date(n.created_time),
+            category=map_category_color(n.category),
+            today=is_today,
+            isBriefing=(n.category == "방문 예정 브리핑"),
+            expandedContent=[line.strip() for line in n.content.split("\n") if line.strip()] if n.content else [],
+            state_us=n.state_us,
+            u_id=n.u_id,
+            s_id=n.s_id,
+            c_id=n.c_id,
+            days_diff=days_diff,
         )
+        paired.append((n, resp))
         
-    return response_list
+    # 정렬 기준 시간에 따라 내림차순 정렬
+    paired.sort(key=get_sort_key, reverse=True)
+    return [resp for _, resp in paired]
 
 
 def get_today_count(current_user, db: Session) -> int:
-    """오늘 날짜의 알림 개수 조회 (방문 예정 브리핑 제외)"""
+    """오늘 날짜의 알림 개수 조회 (방문 예정 브리핑은 30분 전부터 카운트 포함)"""
     ensure_today_notifications(current_user, db)
     
     today_date = datetime.date.today()
@@ -219,15 +234,26 @@ def get_today_count(current_user, db: Session) -> int:
     start_of_today = datetime.datetime.combine(today_date, datetime.time.min)
     end_of_today = datetime.datetime.combine(today_date, datetime.time.max)
     
-    count = (
+    notifs = (
         db.query(Notification)
         .filter(
             Notification.u_id == current_user.id,
             Notification.created_time >= start_of_today,
             Notification.created_time <= end_of_today,
         )
-        .count()
+        .all()
     )
+    
+    count = 0
+    now = datetime.datetime.now()
+    for n in notifs:
+        # '방문 예정 브리핑'의 경우, 현재 시간이 예약 시간(execution_date) 30분 전 이후일 때만 개수에 포함
+        if n.category == "방문 예정 브리핑" and n.schedule:
+            trigger_time = n.schedule.execution_date - datetime.timedelta(minutes=30)
+            if now < trigger_time:
+                continue
+        count += 1
+        
     return count
 
 
