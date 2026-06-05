@@ -20,6 +20,7 @@ class Settings(BaseSettings):
 
     ES_HOST: str = ""
     LOGSTASH_HOST: str = ""
+    POOM_AI_URL: str = "http://poom-ai:8001"
     
     # External API Keys
     ECOS_API_KEY: str = ""
