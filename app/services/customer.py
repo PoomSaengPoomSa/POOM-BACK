@@ -834,7 +834,7 @@ def save_simulator_info(
     )
     
     # Ensure directory exists and write markdown file
-    ai_data_dir = os.path.join(POOM_AI_DIR, "agent", "simulator", "data")
+    ai_data_dir = os.path.join(POOM_AI_DIR, "agent", "simulator", "data", "history")
     os.makedirs(ai_data_dir, exist_ok=True)
     
     md_path = os.path.join(ai_data_dir, f"customer_{customer_id}.md")
