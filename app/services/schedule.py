@@ -112,6 +112,8 @@ def update_schedule(
         sched.execution_date = request.start_datetime
     if request.end_datetime is not None:
         sched.end_datetime = request.end_datetime
+    if "customer_id" in request.model_fields_set:
+        sched.c_id = request.customer_id
     if request.memo is not None:
         sched.memo = request.memo
         
