@@ -7,6 +7,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 from app.models.ai_todo import AiTodo
 from app.models.schedule import Schedule
+from app.config import get_settings
 from app.schemas.ai_todo import (
     AiTodoListResponse,
     AiTodoItem,
@@ -157,8 +158,9 @@ def delete_ai_todo(at_id: int, current_user, db: Session) -> dict:
 def run_ai_todo_agent_subprocess(u_id: str, target_date: str) -> None:
     """POOM-AI LangGraph To-Do Agent를 API 호출하여 일정을 자동 기획하고 DB에 적재합니다."""
     import requests
+    settings = get_settings()
     try:
-        url = "http://poom-ai:8001/api/v1/ai-todo/run"
+        url = f"{settings.POOM_AI_URL}/api/v1/ai-todo/run"
         payload = {"u_id": u_id, "date": target_date}
         logger.info(f"[Background Task] POOM-AI API 호출 시작: {url} payload: {payload}")
         response = requests.post(url, json=payload, timeout=120)

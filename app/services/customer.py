@@ -8,6 +8,7 @@ from app.models.customer import Customer
 from app.models.in_charge import InCharge
 from app.models.schedule import Schedule
 from app.models.churn_level import ChurnLevel
+from app.config import get_settings
 from app.schemas.customer import (
     CustomerCreate,
     CustomerUpdate,
@@ -587,8 +588,9 @@ def format_assets_to_str(asset_val):
 
 def run_llm_structure_memo(memo_text: str):
     import requests
+    settings = get_settings()
     try:
-        response = requests.post("http://poom-ai:8001/api/v1/consult-assistant", json={"memo": memo_text}, timeout=60)
+        response = requests.post(f"{settings.POOM_AI_URL}/api/v1/consult-assistant", json={"memo": memo_text}, timeout=60)
         response.raise_for_status()
         return response.json()
     except Exception as e:
@@ -666,9 +668,10 @@ def generate_ai_report(
 def run_customer_feature_agent(customer_id: int):
     """POOM-AI 고객 특징 추출 및 상품 매칭 에이전트를 백그라운드 API 호출로 실행"""
     import requests
+    settings = get_settings()
     try:
         print(f"[Background] Starting Customer Feature Agent for Customer ID: {customer_id}")
-        response = requests.post("http://poom-ai:8001/api/v1/customer-feature", json={"c_id": customer_id}, timeout=120)
+        response = requests.post(f"{settings.POOM_AI_URL}/api/v1/customer-feature", json={"c_id": customer_id}, timeout=120)
         response.raise_for_status()
         print(f"[+] Customer Feature Agent 실행 완료 (customer_id: {customer_id}): {response.json()}")
     except Exception as e:
@@ -750,6 +753,7 @@ def simulator_chat(
     """시뮬레이터 AI 질의 및 자산 시뮬레이션 (FastAPI API 연동)"""
     from app.schemas.customer import SimulatorChatData
     import requests
+    settings = get_settings()
     
     customer = db.query(Customer).filter(Customer.c_id == customer_id).first()
     if not customer:
@@ -762,7 +766,7 @@ def simulator_chat(
     
     try:
         response = requests.post(
-            "http://poom-ai:8001/api/v1/simulator/chat", 
+            f"{settings.POOM_AI_URL}/api/v1/simulator/chat", 
             json={"c_id": customer_id, "question": question},
             timeout=60
         )
