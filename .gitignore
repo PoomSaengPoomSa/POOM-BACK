@@ -13,3 +13,6 @@ build/
 .vscode/
 *.db
 *.sqlite3
+scratch/
+tests/
+*.txt

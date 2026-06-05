@@ -136,9 +136,9 @@ def delete_schedule(
             detail="일정을 찾을 수 없습니다.",
         )
         
-    # 1. 외래키(s_id) 제약조건 에러를 방지하기 위해 연관된 알림(Notification)의 s_id를 NULL로 설정
-    db.query(Notification).filter(Notification.s_id == schedule_id).update(
-        {Notification.s_id: None}, synchronize_session=False
+    # 1. 연관된 알림(Notification)도 함께 DB에서 완전히 삭제 (Cascade Delete)
+    db.query(Notification).filter(Notification.s_id == schedule_id).delete(
+        synchronize_session=False
     )
     
     # 2. AI To Do 추천을 통해 자동 생성되었던 일정일 경우, AI To Do 목록에서 복원되도록 처리
