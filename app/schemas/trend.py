@@ -209,14 +209,14 @@ class ReportCreateRequest(BaseModel):
 
 
 class ReportCreateResponse(BaseModel):
-    reportId: str = Field(alias="reportId")
+    reportId: int = Field(alias="reportId")
     status: str = "pending"
     estimatedSeconds: Optional[int] = Field(30, alias="estimatedSeconds")
     model_config = ConfigDict(populate_by_name=True)
 
 
 class ReportStatusResponse(BaseModel):
-    reportId: str = Field(alias="reportId")
+    reportId: int = Field(alias="reportId")
     status: str  # pending, running, done, failed
     progress: Optional[int] = None
     failedReason: Optional[str] = Field(None, alias="failedReason")
@@ -232,14 +232,10 @@ class DataSourcePeriod(BaseModel):
 
 
 class ReportResponse(BaseModel):
-    reportId: str = Field(alias="reportId")
+    reportId: int = Field(alias="reportId")
     type: str
     content: str
     summary: str
-    language: str
-    modelName: str = Field(alias="modelName")
-    dataSources: List[str] = Field(alias="dataSources")
-    dataSourcePeriod: DataSourcePeriod = Field(alias="dataSourcePeriod")
     generatedAt: str = Field(alias="generatedAt")
     model_config = ConfigDict(populate_by_name=True)
 

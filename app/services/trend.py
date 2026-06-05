@@ -392,6 +392,7 @@ async def get_trend_dashboard(current_user, db: Session) -> TrendDashboardRespon
 
 
     # E. 뉴스 AI 요약 생성 및 캐싱 연동
+    import asyncio
     ai_summaries = {}
     current_time = time.time()
     
@@ -1152,10 +1153,9 @@ async def create_indicator_report(
 
 
 async def get_report_status(
-    type: str, report_id: str, current_user, db: Session
+    type: str, report_id: int, current_user, db: Session
 ) -> ReportStatusResponse:
     """리포트 생성 상태 조회"""
-    from fastapi import HTTPException
     import datetime
     
     try:
@@ -1194,6 +1194,7 @@ async def get_latest_report(
 ) -> ReportLatestResponse:
     """최신 리포트 조회"""
     from fastapi import HTTPException
+    import re
     
     if type not in ["gold", "real_estate", "base_rate"]:
         raise HTTPException(status_code=400, detail="허용되지 않는 type 값")
@@ -1205,11 +1206,71 @@ async def get_latest_report(
     if not report:
         raise HTTPException(status_code=404, detail="해당 지표 보고서 없음")
         
-    clean_text = report.content.replace("#", "").replace("*", "").replace("-", "").replace("\n", " ").strip()
-    fallback_summary = clean_text[:145] + " . . . 더보기" if len(clean_text) > 145 else clean_text
-    summary_to_return = report.summary if report.summary else fallback_summary
+    # 지능형 요약 추출 파서: 큰 숫자 1,2,3... 대분류 단락 기준 각 문단별 핵심 1~2개 문장 추출
+    def clean_markdown(t: str) -> str:
+        return t.replace("**", "").replace("__", "").replace("*", "").replace("_", "").strip()
+
+    def parse_sentences(t: str) -> list:
+        sents = re.split(r'(?<=[.!?])\s+', t.strip())
+        return [s.strip() for s in sents if len(s.strip()) >= 10]
+
+    content = report.content
+    section_headers = list(re.finditer(r'^##\s+(\d+)\.\s*(.*)', content, re.MULTILINE))
     
-    sources_list = ["ECOS", "FRED"]
+    if not section_headers:
+        # 대분류 헤더가 없으면 기본 방식 폴백
+        clean_text = clean_markdown(content)
+        summary = clean_text[:800].strip() + (" . . . 더보기" if len(clean_text) > 800 else "")
+    else:
+        sections = []
+        for i in range(len(section_headers)):
+            start = section_headers[i].end()
+            end = section_headers[i+1].start() if i+1 < len(section_headers) else len(content)
+            sec_num = section_headers[i].group(1)
+            sec_title = clean_markdown(section_headers[i].group(2))
+            sec_body = content[start:end]
+            sections.append((sec_num, sec_title, sec_body))
+            
+        summary_parts = []
+        for num, title, body in sections:
+            lines = body.splitlines()
+            sentences_in_section = []
+            
+            for line in lines:
+                line_str = line.strip()
+                if not line_str:
+                    continue
+                if line_str.startswith("#"):
+                    continue
+                
+                if line_str.startswith("-") or line_str.startswith("*"):
+                    match_desc = re.match(r"^[-*]\s*\*\*([^*]+)\*\*:\s*(.*)", line_str)
+                    if match_desc:
+                        key = clean_markdown(match_desc.group(1))
+                        val = clean_markdown(match_desc.group(2))
+                        if len(val) >= 15:
+                            combined = f"{key}: {val}" if not key.lower().strip() in ["평균 shap 기여도", "shap 기여도"] else val
+                            sentences_in_section.extend(parse_sentences(combined))
+                        continue
+                    clean_list_item = re.sub(r"^[-*]\s*", "", line_str)
+                    sentences_in_section.extend(parse_sentences(clean_markdown(clean_list_item)))
+                    continue
+                    
+                sentences_in_section.extend(parse_sentences(clean_markdown(line_str)))
+                
+            selected_sentences = sentences_in_section[:2]
+            fixed_sentences = []
+            for s in selected_sentences:
+                if s and not s.endswith((".", "?", "!")):
+                    fixed_sentences.append(s + ".")
+                else:
+                    fixed_sentences.append(s)
+                    
+            if fixed_sentences:
+                sec_summary = " ".join(fixed_sentences)
+                summary_parts.append(f"{num}. {title}: {sec_summary}")
+                
+        summary = "\n".join(summary_parts)
     
     earliest = db.query(EconomicIndicatorHistory).filter(
         EconomicIndicatorHistory.type == type
@@ -1222,19 +1283,20 @@ async def get_latest_report(
     from_date = earliest.recorded_at.strftime("%Y-%m-%d") if earliest else "2026-04-25"
     to_date = latest.recorded_at.strftime("%Y-%m-%d") if latest else "2026-05-25"
     
+    # Safely handle potential None created_at values
+    gen_time_str = report.created_at.strftime("%Y-%m-%dT%H:%M:%SZ") if report.created_at else datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    
     return {
         "reportId": str(report.report_id),
         "type": report.type,
         "content": report.content,
-        "summary": summary_to_return,
+        "summary": report.summary,
         "language": "ko",
-        "modelName": "gpt-4o",
-        "dataSources": sources_list,
         "dataSourcePeriod": {
             "from": from_date,
             "to": to_date
         },
-        "generatedAt": report.created_at.strftime("%Y-%m-%dT%H:%M:%SZ")
+        "generatedAt": gen_time_str
     }
 
 
