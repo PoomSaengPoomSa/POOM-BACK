@@ -685,12 +685,12 @@ def generate_ai_report(
 
 
 def run_customer_feature_agent(customer_id: int):
-    """POOM-AI 고객 특징 추출 및 상품 매칭 에이전트(run_feature.py)를 백그라운드 서브프로세스로 실행"""
+    """POOM-AI 고객 특징 추출 및 상품 매칭 에이전트(main.py)를 백그라운드 서브프로세스로 실행"""
     import subprocess
     import os
     
     python_exe = os.path.join(POOM_AI_DIR, ".venv", "Scripts", "python.exe")
-    script_path = os.path.join(POOM_AI_DIR, "agent", "customer", "run_feature.py")
+    script_path = os.path.join(POOM_AI_DIR, "agent", "customer", "main.py")
     cwd = os.path.join(POOM_AI_DIR, "agent", "customer")
     
     try:
