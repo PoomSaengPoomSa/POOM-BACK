@@ -19,6 +19,7 @@ class ScheduleUpdate(BaseModel):
     start_datetime: Optional[datetime] = Field(default=None, alias="startDatetime")
     end_datetime: Optional[datetime] = Field(default=None, alias="endDatetime")
     color: Optional[str] = None
+    customer_id: Optional[int] = Field(default=None, alias="customerId")
     memo: Optional[str] = None
     model_config = ConfigDict(populate_by_name=True)
 

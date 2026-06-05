@@ -135,6 +135,11 @@ def unconfirm_ai_todo(
     
     sched = db.query(Schedule).filter(Schedule.at_id == at_id).first()
     if sched:
+        from app.models.notification import Notification
+        # 외래키(s_id) 제약조건 에러 방지
+        db.query(Notification).filter(Notification.s_id == sched.s_id).update(
+            {Notification.s_id: None}, synchronize_session=False
+        )
         db.delete(sched)
         
     db.commit()
@@ -150,6 +155,12 @@ def delete_ai_todo(at_id: int, current_user, db: Session) -> dict:
             status_code=status.HTTP_404_NOT_FOUND,
             detail="AI 투두를 찾을 수 없습니다."
         )
+    
+    # 외래키(at_id) 제약조건 에러 방지
+    db.query(Schedule).filter(Schedule.at_id == at_id).update(
+        {Schedule.at_id: None}, synchronize_session=False
+    )
+    
     db.delete(todo)
     db.commit()
     return {"message": "추천 일정이 성공적으로 삭제되었습니다."}
