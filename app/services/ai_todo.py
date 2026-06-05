@@ -168,3 +168,22 @@ def run_ai_todo_agent_subprocess(u_id: str, target_date: str) -> None:
         logger.info(f"[Background Task] POOM-AI API 성공 완료: {response.json()}")
     except Exception as e:
         logger.error(f"[Background Task] POOM-AI API 구동 중 예외 발생: {e}", exc_info=True)
+
+
+def run_ai_todo_agent_sync(u_id: str, target_date: str) -> dict:
+    """POOM-AI LangGraph To-Do Agent를 API 동기 호출하여 일정을 자동 기획하고 결과를 반환합니다."""
+    import requests
+    from fastapi import HTTPException
+    settings = get_settings()
+    try:
+        url = f"{settings.POOM_AI_URL}/api/v1/ai-todo/run"
+        payload = {"u_id": u_id, "date": target_date}
+        logger.info(f"[Sync Task] POOM-AI API 호출 시작: {url} payload: {payload}")
+        # 5분(300초) 타임아웃 적용
+        response = requests.post(url, json=payload, timeout=300)
+        response.raise_for_status()
+        logger.info(f"[Sync Task] POOM-AI API 성공 완료")
+        return response.json()
+    except Exception as e:
+        logger.error(f"[Sync Task] POOM-AI API 구동 중 예외 발생: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"AI agent execution failed: {str(e)}")
