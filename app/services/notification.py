@@ -25,6 +25,17 @@ except ImportError:
 _notification_lock = threading.Lock()
 
 
+def get_kst_now() -> datetime.datetime:
+    """한국 시간(KST) 기준의 naive datetime을 반환합니다."""
+    kst_tz = datetime.timezone(datetime.timedelta(hours=9))
+    return datetime.datetime.now(kst_tz).replace(tzinfo=None)
+
+
+def get_kst_today() -> datetime.date:
+    """한국 시간(KST) 기준의 오늘 날짜를 반환합니다."""
+    return get_kst_now().date()
+
+
 def map_category_color(category: str) -> str:
     mapping = {
         "방문 예정 브리핑": "green",
@@ -62,7 +73,7 @@ def ensure_today_notifications(current_user, db: Session):
         
     lock_file = scratch_dir / f"generation_{current_user.id}.lock"
     last_run_file = scratch_dir / f"last_run_date_{current_user.id}.txt"
-    today_date = datetime.date.today()
+    today_date = get_kst_today()
     today_str = today_date.strftime("%Y-%m-%d")
     
     # 락 획득 시도 (타임아웃 15초)
@@ -167,7 +178,7 @@ def get_notifications(
     """유저 ID(u_id)에 따른 알림 리스트 조회 및 포맷팅 (방문 브리핑은 30분 전부터 노출)"""
     ensure_today_notifications(current_user, db)
     
-    today_date = datetime.date.today()
+    today_date = get_kst_today()
     query = db.query(Notification).filter(
         Notification.u_id == current_user.id
     )
@@ -192,11 +203,11 @@ def get_notifications(
         if tab == "today" and not is_today:
             continue
             
-        # '방문 예정 브리핑'의 경우, 현재 시간이 예약 시간(execution_date) 30분 전 이후일 때만 알림 제공
+        # '방문 예정 브리핑'의 경우, 현재 시간이 예약 시간(execution_date) 30분 전부터 예약 시간(정각) 사이일 때만 알림 제공
         if n.category == "방문 예정 브리핑" and n.schedule:
-            now = datetime.datetime.now()
+            now = get_kst_now()
             trigger_time = n.schedule.execution_date - datetime.timedelta(minutes=30)
-            if now < trigger_time:
+            if not (trigger_time <= now <= n.schedule.execution_date):
                 continue
                 
         days_diff = (today_date - created_date).days
@@ -228,7 +239,7 @@ def get_today_count(current_user, db: Session) -> int:
     """오늘 날짜의 알림 개수 조회 (방문 예정 브리핑은 30분 전부터 카운트 포함)"""
     ensure_today_notifications(current_user, db)
     
-    today_date = datetime.date.today()
+    today_date = get_kst_today()
     
     # 쿼리에서 오늘 시작(00:00:00)부터 오늘 끝(23:59:59)까지 필터링
     start_of_today = datetime.datetime.combine(today_date, datetime.time.min)
@@ -245,12 +256,12 @@ def get_today_count(current_user, db: Session) -> int:
     )
     
     count = 0
-    now = datetime.datetime.now()
+    now = get_kst_now()
     for n in notifs:
-        # '방문 예정 브리핑'의 경우, 현재 시간이 예약 시간(execution_date) 30분 전 이후일 때만 개수에 포함
+        # '방문 예정 브리핑'의 경우, 현재 시간이 예약 시간(execution_date) 30분 전부터 예약 시간(정각) 사이일 때만 개수에 포함
         if n.category == "방문 예정 브리핑" and n.schedule:
             trigger_time = n.schedule.execution_date - datetime.timedelta(minutes=30)
-            if now < trigger_time:
+            if not (trigger_time <= now <= n.schedule.execution_date):
                 continue
         count += 1
         
@@ -259,7 +270,7 @@ def get_today_count(current_user, db: Session) -> int:
 
 def get_customer_briefing(current_user, customer_id: int, db: Session) -> Optional[NotificationResponse]:
     """특정 고객의 오늘 날짜 방문 예정 브리핑 조회 및 미생성 시 온디맨드 생성"""
-    today_date = datetime.date.today()
+    today_date = get_kst_today()
     
     # 1. 온디맨드 생성 처리
     if run_notification_generator:
@@ -291,11 +302,12 @@ def get_customer_briefing(current_user, customer_id: int, db: Session) -> Option
             import logging
             logging.getLogger(__name__).error(f"[OnDemandGeneration] 특정 고객 브리핑 생성 실패: {e}", exc_info=True)
 
-    # 2. 조회 및 반환
+    # 2. 조회 및 반환 (s_id가 정상적으로 존재하는 유효 브리핑만 필터 조회)
     n = db.query(Notification).filter(
         Notification.u_id == current_user.id,
         Notification.c_id == customer_id,
-        Notification.category == "방문 예정 브리핑"
+        Notification.category == "방문 예정 브리핑",
+        Notification.s_id.isnot(None)
     ).order_by(Notification.created_time.desc()).first()
     
     if not n:

@@ -117,6 +117,14 @@ def update_schedule(
     if request.memo is not None:
         sched.memo = request.memo
         
+    # 일정 정보가 수정되는 경우 기존에 생성된 방문 예정 브리핑 알림을 삭제하여,
+    # 바뀐 일정 정보(시간, 메모 등)를 반영한 최신 브리핑이 실시간 자동 재구성되도록 유도합니다.
+    from app.models.notification import Notification
+    db.query(Notification).filter(
+        Notification.s_id == schedule_id,
+        Notification.category == "방문 예정 브리핑"
+    ).delete(synchronize_session=False)
+        
     db.commit()
     db.refresh(sched)
     return sched
