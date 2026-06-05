@@ -37,6 +37,7 @@ import time
 AI_NEWS_CACHE = {
     "economy": {"summary": "", "updated_at": 0.0},
     "politics": {"summary": "", "updated_at": 0.0},
+    "international": {"summary": "", "updated_at": 0.0},
     "itScience": {"summary": "", "updated_at": 0.0}
 }
 CACHE_EXPIRE_SECONDS = 3600  # 1 hour
@@ -99,7 +100,7 @@ async def get_trend_dashboard(current_user, db: Session) -> TrendDashboardRespon
     """트렌드 대시보드 조회 (Elasticsearch 우선조회 후 MySQL 폴백)"""
     economy_news = []
     politics_news = []
-    it_news = []
+    international_news = []
     
     # 1. Elasticsearch에서 기사 조회 시도 (카테고리별 최신 5건)
     try:
@@ -123,7 +124,7 @@ async def get_trend_dashboard(current_user, db: Session) -> TrendDashboardRespon
             resp_mug = await client.post(
                 f"{ES_HOST}/sbs_news/_search",
                 json={
-                    "query": {"term": {"category": "머그"}},
+                    "query": {"term": {"category": "국제"}},
                     "sort": [{"published_at": {"order": "desc"}}],
                     "size": 5
                 }
@@ -148,7 +149,7 @@ async def get_trend_dashboard(current_user, db: Session) -> TrendDashboardRespon
                     for hit in resp_pol.json().get("hits", {}).get("hits", [])
                 ]
             if resp_mug.status_code == 200:
-                it_news = [
+                international_news = [
                     {
                         "id": hit["_id"],
                         "title": hit["_source"].get("title", ""),
@@ -162,8 +163,9 @@ async def get_trend_dashboard(current_user, db: Session) -> TrendDashboardRespon
     news_data = {
         "economy": economy_news,
         "politics": politics_news,
-        "itScience": it_news,
-        "it": it_news,
+        "international": international_news,
+        "itScience": international_news,
+        "it": international_news,
     }
 
     # 2. 금값 및 부동산 지표 동적 조회
@@ -394,33 +396,27 @@ async def get_trend_dashboard(current_user, db: Session) -> TrendDashboardRespon
     ai_summaries = {}
     current_time = time.time()
     
-    categories_to_fetch = []
-    
-    for cat_key, articles in [("economy", economy_news), ("politics", politics_news), ("itScience", it_news)]:
+    for cat_key, articles in [("economy", economy_news), ("politics", politics_news), ("international", international_news)]:
         cache_data = AI_NEWS_CACHE[cat_key]
-        if not cache_data["summary"] or (current_time - cache_data["updated_at"] > CACHE_EXPIRE_SECONDS):
-            cat_name = "경제" if cat_key == "economy" else "정치" if cat_key == "politics" else "IT/과학"
-            categories_to_fetch.append((cat_key, cat_name, fetch_ai_news_summary(cat_name, articles)))
-        else:
-            ai_summaries[cat_key] = cache_data["summary"]
-            
-    if categories_to_fetch:
-        # asyncio.gather를 사용해 모든 OpenAI API 호출을 동시에 실행!
-        keys = [item[0] for item in categories_to_fetch]
-        coroutines = [item[2] for item in categories_to_fetch]
-        
-        results = await asyncio.gather(*coroutines)
-        
-        for cat_key, summary_txt in zip(keys, results):
-            cache_data = AI_NEWS_CACHE[cat_key]
-            if summary_txt and not summary_txt.startswith("- 실시간 AI 요약 브리핑을 생성하는 도중") and not summary_txt.startswith("- 실시간 AI 요약 브리핑을 준비"):
+        if not cache_data["summary"] or (current_time - cache_data["updated_at"] > CACHE_EXPIRE_SECONDS) or any(cache_data["summary"].startswith(x) for x in ["- 최신 기사가 아직 수집되지 않았습니다.", "- 실시간 AI 요약 브리핑을"]):
+            cat_name = "경제" if cat_key == "economy" else "정치" if cat_key == "politics" else "국제"
+            summary_txt = await fetch_ai_news_summary(cat_name, articles)
+            if summary_txt and not any(summary_txt.startswith(x) for x in [
+                "- 실시간 AI 요약 브리핑을 생성하는 도중",
+                "- 실시간 AI 요약 브리핑을 준비",
+                "- 최신 기사가 아직 수집되지 않았습니다."
+            ]):
                 AI_NEWS_CACHE[cat_key] = {
                     "summary": summary_txt,
                     "updated_at": current_time
                 }
                 ai_summaries[cat_key] = summary_txt
             else:
-                ai_summaries[cat_key] = cache_data["summary"] if cache_data["summary"] else summary_txt
+                ai_summaries[cat_key] = summary_txt
+        else:
+            ai_summaries[cat_key] = cache_data["summary"]
+
+    ai_summaries["itScience"] = ai_summaries.get("international", "")
 
     return {
         "news": news_data,
@@ -484,12 +480,14 @@ async def get_news_list(
             cat_map = {
                 "경제": "경제",
                 "정치": "정치",
-                "사회": "머그",
-                "IT/과학": "머그",
+                "국제": "국제",
+                "사회": "국제",
+                "IT/과학": "국제",
                 "economy": "경제",
                 "politics": "정치",
-                "it": "머그",
-                "itScience": "머그"
+                "international": "국제",
+                "it": "국제",
+                "itScience": "국제"
             }
             mapped_cat = cat_map.get(category, category)
             es_filters.append({"term": {"category": mapped_cat}})
@@ -532,8 +530,8 @@ async def get_news_list(
                 for hit in hits_list:
                     source = hit.get("_source", {})
                     cat = source.get("category", "일반")
-                    if cat in ["머그", "사회"]:
-                        cat = "사회"
+                    if cat in ["머그", "사회", "국제"]:
+                        cat = "국제"
                     pub_at_str = source.get("published_at", "")
                     if pub_at_str:
                         pub_at_str = pub_at_str.split("T")[0] if "T" in pub_at_str else pub_at_str[:10]
@@ -594,8 +592,8 @@ async def get_news_detail(
                     tags = tags.split(",") if tags else []
                     
                 cat = source.get("category", "일반")
-                if cat in ["머그", "사회"]:
-                    cat = "사회"
+                if cat in ["머그", "사회", "국제"]:
+                    cat = "국제"
                     
                 return NewsDetailResponse(
                     newsId=news_id,
@@ -1134,14 +1132,21 @@ async def create_indicator_report(
 ) -> ReportCreateResponse:
     """지표 리포트 생성 요청"""
     from fastapi import HTTPException
-    import random
+    import datetime
     
     if type not in ["gold", "real_estate", "base_rate"]:
         raise HTTPException(status_code=400, detail="허용되지 않는 type 값")
         
-    report_id = random.randint(100000, 999999)
+    new_report = TrendLlmReport(
+        type=type,
+        content="지표 분석 리포트 생성이 비동기적으로 시작되었습니다. 약 30초 내에 상세 분석이 완료됩니다.",
+        created_at=datetime.datetime.utcnow()
+    )
+    db.add(new_report)
+    db.commit()
+    
     return {
-        "reportId": report_id,
+        "reportId": str(new_report.report_id),
         "status": "pending",
         "estimatedSeconds": 30
     }
@@ -1153,13 +1158,35 @@ async def get_report_status(
     """리포트 생성 상태 조회"""
     import datetime
     
-    return {
-        "reportId": report_id,
-        "status": "done",
-        "progress": 100,
-        "failedReason": None,
-        "completedAt": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-    }
+    try:
+        rep_id_int = int(report_id)
+    except ValueError:
+        rep_id_int = -1
+
+    report = db.query(TrendLlmReport).filter(
+        TrendLlmReport.report_id == rep_id_int
+    ).first()
+    
+    if not report:
+        raise HTTPException(status_code=404, detail="리포트를 찾을 수 없습니다.")
+
+    elapsed = (datetime.datetime.utcnow() - report.created_at).total_seconds()
+    if elapsed > 10:
+        return {
+            "reportId": str(report.report_id),
+            "status": "done",
+            "progress": 100,
+            "failedReason": None,
+            "completedAt": report.created_at.strftime("%Y-%m-%dT%H:%M:%SZ")
+        }
+    else:
+        return {
+            "reportId": str(report.report_id),
+            "status": "pending",
+            "progress": 10,
+            "failedReason": None,
+            "completedAt": None
+        }
 
 
 async def get_latest_report(
@@ -1260,7 +1287,7 @@ async def get_latest_report(
     gen_time_str = report.created_at.strftime("%Y-%m-%dT%H:%M:%SZ") if report.created_at else datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     
     return {
-        "reportId": report.report_id,
+        "reportId": str(report.report_id),
         "type": report.type,
         "content": report.content,
         "summary": report.summary,

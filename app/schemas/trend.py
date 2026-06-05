@@ -12,7 +12,8 @@ class DashboardNewsItem(BaseModel):
 class DashboardNews(BaseModel):
     economy: List[DashboardNewsItem]
     politics: List[DashboardNewsItem]
-    itScience: List[DashboardNewsItem]
+    international: Optional[List[DashboardNewsItem]] = None
+    itScience: Optional[List[DashboardNewsItem]] = None
     # 하위 호환성을 위해 기존 'it' 필드도 보너스로 포함하여 클라이언트 오류 방지
     it: Optional[List[DashboardNewsItem]] = None
 
