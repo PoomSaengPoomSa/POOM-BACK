@@ -55,12 +55,10 @@ def delete_ai_todo(
     return ai_todo_service.delete_ai_todo(at_id, current_user, db)
 
 
-@router.post("/run", response_model=MessageResponse)
+@router.post("/run")
 def run_ai_todo_agent(
     u_id: str = Query("all", description="PB ID (또는 'all'로 전체 PB 대상 구동)"),
     date: str = Query(..., description="분석 기준일 YYYY-MM-DD"),
-    background_tasks: BackgroundTasks = BackgroundTasks(),
 ):
     """AI 투두 에이전트 구동 및 적재 트리거"""
-    background_tasks.add_task(ai_todo_service.run_ai_todo_agent_subprocess, u_id, date)
-    return MessageResponse(message="LangGraph AI ToDo 에이전트 백그라운드 구동 시작")
+    return ai_todo_service.run_ai_todo_agent_sync(u_id, date)
