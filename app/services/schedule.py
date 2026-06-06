@@ -158,3 +158,19 @@ def delete_schedule(
     db.delete(sched)
     db.commit()
     return MessageResponse(message="일정이 정상적으로 삭제되었습니다.")
+
+
+def complete_schedule(
+    schedule_id: int, current_user, db: Session
+) -> Schedule:
+    """일정 완료 여부 토글"""
+    sched = db.query(Schedule).filter(Schedule.s_id == schedule_id).first()
+    if not sched:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="일정을 찾을 수 없습니다.",
+        )
+    sched.is_completed = not sched.is_completed
+    db.commit()
+    db.refresh(sched)
+    return sched

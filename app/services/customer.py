@@ -31,6 +31,7 @@ from app.schemas.customer import (
     SimulatorChatResponse,
     SimulatorInfoResponse,
 )
+from app.services.notification import clear_notification_cache
 
 _current_file = os.path.abspath(__file__)
 _services_dir = os.path.dirname(_current_file)
@@ -138,6 +139,7 @@ def create_customer(
     db.add(in_charge_mapping)
     
     db.commit()
+    clear_notification_cache(current_user.id)
     db.refresh(new_cust)
     return new_cust
 
@@ -189,6 +191,7 @@ def update_customer(
         customer.gender = request.gender
         
     db.commit()
+    clear_notification_cache(current_user.id)
     db.refresh(customer)
     return customer
 
@@ -740,6 +743,7 @@ def save_ai_report(
     )
     db.add(new_report)
     db.commit()
+    clear_notification_cache(current_user.id)
     db.refresh(new_report)
     
     # DB 트랜잭션 완료 후 백그라운드 태스크로 분석 에이전트 구동

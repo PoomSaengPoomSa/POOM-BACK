@@ -67,3 +67,13 @@ def delete_schedule(
 ):
     """일정 삭제"""
     return schedule_service.delete_schedule(schedule_id, current_user, db)
+
+
+@router.patch("/schedules/{schedule_id}/complete", response_model=ScheduleResponse)
+def complete_schedule(
+    schedule_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """일정 완료 여부 토글"""
+    return schedule_service.complete_schedule(schedule_id, current_user, db)

@@ -332,3 +332,28 @@ def get_customer_briefing(current_user, customer_id: int, db: Session) -> Option
         c_id=n.c_id,
         days_diff=days_diff,
     )
+
+
+def clear_notification_cache(u_id: str) -> None:
+    """지정된 유저의 알림 생성 캐시 및 락을 초기화하여 실시간 재생성을 유도합니다."""
+    import os
+    import tempfile
+    from pathlib import Path
+    
+    current_file_path = Path(__file__).resolve()
+    # notification.py는 app/services/ 하위에 있으므로, root_dir은 부모의 부모의 부모 폴더(POOM-BACK)가 됨
+    root_dir = current_file_path.parent.parent.parent
+    
+    scratch_dir = root_dir / "scratch"
+    if not scratch_dir.exists():
+        scratch_dir = Path(tempfile.gettempdir())
+        
+    lock_file = scratch_dir / f"generation_{u_id}.lock"
+    last_run_file = scratch_dir / f"last_run_date_{u_id}.txt"
+    
+    for f in [lock_file, last_run_file]:
+        if f.exists():
+            try:
+                os.remove(f)
+            except Exception:
+                pass
