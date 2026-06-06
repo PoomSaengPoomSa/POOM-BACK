@@ -269,8 +269,11 @@ def get_main_product_match(
             is_suitable = matching.is_suitable
             reason = matching.reason
         else:
-            is_suitable = 1 # 기본값 적합 (Integer)
-            reason = f"고객님의 투자 성향({tendency})에 적합한 상품입니다."
+            is_suitable = -1 # 기본값 분석 진행 전 (Integer)
+            reason = "AI의 분석이 진행되지 않았습니다."
+
+        if is_owned:
+            reason = "보유중인 상품입니다."
 
         items.append(
             ProductMatchItem(
@@ -695,6 +698,18 @@ def save_ai_report(
     if not cm_id:
         memo_text = request.memo or ""
         parsed_date = datetime.now()
+        if request.consult_date:
+            try:
+                dt = datetime.strptime(request.consult_date, "%Y-%m-%d")
+                parsed_date = datetime.combine(dt.date(), datetime.now().time())
+            except ValueError:
+                try:
+                    parsed_date = datetime.strptime(request.consult_date, "%Y-%m-%d %H:%M:%S")
+                except ValueError:
+                    try:
+                        parsed_date = datetime.fromisoformat(request.consult_date)
+                    except ValueError:
+                        pass
         
         memo_record = ConsultationMemo(
             consult_date=parsed_date,
