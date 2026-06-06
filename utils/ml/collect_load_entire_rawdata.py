@@ -27,9 +27,9 @@ END_DASH = today.strftime('%Y-%m-%d')                     # YYYY-MM-DD (FRED 일
 # yfinance는 end 속성값의 전날까지 수집하므로 하루 더해줌
 END_YF = (today + timedelta(days=1)).strftime('%Y-%m-%d') 
 
-START_YM = '201401'
-START_Q = '2014Q1'
-START_DASH = '2014-01-01'
+START_YM = '200501'
+START_Q = '2005Q1'
+START_DASH = '2005-01-01'
 
 # ═══════════════════════════════════════════════════
 #  1. 한국은행 ECOS 및 미연준 FRED 데이터 수집
@@ -600,6 +600,6 @@ def upload_to_mysql(data_dict):
         print(f"❌ DB 적재 중 오류 발생: {e}")
 
 if __name__ == '__main__':
-    #collect_all()
-    #concat_rawdata()
+    collect_all()
+    concat_rawdata()
     load_and_split_data()
