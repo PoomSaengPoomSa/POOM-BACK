@@ -1,5 +1,4 @@
 import os
-import sys
 import time
 import requests
 import pandas as pd
@@ -8,12 +7,6 @@ import yfinance as yf
 from sqlalchemy import create_engine, text
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
-
-# Windows 환경에서 콘솔 출력 인코딩 문제 해결 (cp949로 인한 emoji 출력 에러 방지)
-if sys.platform.startswith('win'):
-    import io
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 # ═══════════════════════════════════════════════════
 #  공통 환경 및 날짜 설정
@@ -42,13 +35,13 @@ def fetch_ecos(api_key, stat_code, item_code, period='M', start='201401', end=EN
     )
     resp = requests.get(url, timeout=30)
     if resp.status_code != 200:
-        print(f"     ⚠ ECOS HTTP {resp.status_code}")
+        print(f"     [경고] ECOS HTTP {resp.status_code}")
         return pd.DataFrame()
 
     body = resp.json()
     if 'StatisticSearch' not in body:
         error_msg = body.get('RESULT', {}).get('MESSAGE', '알 수 없는 오류')
-        print(f"     ⚠ ECOS API 수집 실패 [{stat_code}-{item_code}]: {error_msg}")
+        print(f"     [경고] ECOS API 수집 실패 [{stat_code}-{item_code}]: {error_msg}")
         return pd.DataFrame()
 
     rows = body['StatisticSearch']['row']
@@ -77,7 +70,7 @@ def fetch_fred(api_key, series_id, col_name='value', start=START_DASH, end=END_D
     }
     resp = requests.get("https://api.stlouisfed.org/fred/series/observations", params=params, timeout=30)
     if resp.status_code != 200:
-        print(f"     ⚠ FRED HTTP {resp.status_code}")
+        print(f"     [경고] FRED HTTP {resp.status_code}")
         return pd.DataFrame()
 
     body = resp.json()
@@ -109,7 +102,7 @@ def get_period_list(start, end):
     return periods
 
 def fetch_reb(api_key, stat_code, item_code, col_name, region_code=None, start=START_YM, end=END_YM):
-    print(f"  📥 {col_name} 수집 중...")
+    print(f"  {col_name} 수집 중...")
     periods = get_period_list(start, end)
     rows_all = []
 
@@ -135,11 +128,11 @@ def fetch_reb(api_key, stat_code, item_code, col_name, region_code=None, start=S
                 if rows:
                     rows_all.extend(rows)
         except Exception as e:
-            print(f"     ❌ {period} 오류: {e}")
+            print(f"     [오류] {period} 오류: {e}")
         time.sleep(0.1)
 
     if not rows_all:
-        print(f"     ⚠️  데이터 없음")
+        print(f"     [경고] 데이터 없음")
         return pd.DataFrame()
 
     df = pd.DataFrame(rows_all)
@@ -152,7 +145,7 @@ def fetch_reb(api_key, stat_code, item_code, col_name, region_code=None, start=S
     df['date'] = df['WRTTIME_IDTFR_ID'].str[:4] + '-' + df['WRTTIME_IDTFR_ID'].str[4:6]
     df[col_name] = pd.to_numeric(df['DTA_VAL'], errors='coerce')
 
-    print(f"     ✅ {len(df)}건 수집 완료")
+    print(f"     [완료] {len(df)}건 수집 완료")
     return df[['date', col_name]]
 
 # ═══════════════════════════════════════════════════
@@ -161,11 +154,11 @@ def fetch_reb(api_key, stat_code, item_code, col_name, region_code=None, start=S
 def download_yf_all(tickers: dict, start: str, end: str) -> pd.DataFrame:
     frames = []
     for col_name, ticker in tickers.items():
-        print(f"  📥 {ticker:12s} → {col_name}")
+        print(f"  {ticker:12s} -> {col_name}")
         try:
             df = yf.download(ticker, start=start, end=end, interval="1d", auto_adjust=True, progress=False)
             if df.empty:
-                print(f"     ⚠️  데이터 없음: {ticker}")
+                print(f"     [경고] 데이터 없음: {ticker}")
                 continue
 
             if isinstance(df.columns, pd.MultiIndex):
@@ -176,7 +169,7 @@ def download_yf_all(tickers: dict, start: str, end: str) -> pd.DataFrame:
             close.name = col_name
             frames.append(close)
         except Exception as e:
-            print(f"     ❌ 오류 ({ticker}): {e}")
+            print(f"     [오류] 오류 ({ticker}): {e}")
 
     if not frames:
         return pd.DataFrame()
@@ -217,7 +210,7 @@ def make_yf_monthly(daily: pd.DataFrame) -> pd.DataFrame:
 # ═══════════════════════════════════════════════════
 def merge_and_save(dfs, file_path, desc):
     if not dfs:
-        print(f"⚠ {desc} 수집된 데이터가 없어 파일을 생성하지 않습니다.")
+        print(f"[경고] {desc} 수집된 데이터가 없어 파일을 생성하지 않습니다.")
         return
         
     merged = dfs[0]
@@ -226,7 +219,7 @@ def merge_and_save(dfs, file_path, desc):
         
     merged = merged.sort_values('date').reset_index(drop=True)
     merged.to_csv(file_path, index=False, encoding='utf-8-sig')
-    print(f"✅ {desc} 저장 완료: {file_path} ({len(merged)}건)")
+    print(f"[완료] {desc} 저장 완료: {file_path} ({len(merged)}건)")
 
 # ═══════════════════════════════════════════════════
 #  메인 실행: 데이터 수집
@@ -245,7 +238,7 @@ def collect_all():
     reb_key = os.getenv('REB_API_KEY')
 
     if not all([ecos_key, fred_key, reb_key]):
-        print("❌ .env 파일에서 하나 이상의 API_KEY(ECOS, FRED, REB)를 찾을 수 없습니다.")
+        print("[오류] .env 파일에서 하나 이상의 API_KEY(ECOS, FRED, REB)를 찾을 수 없습니다.")
         return
 
     save_dir = os.path.join(base_dir, 'data', 'ml')
@@ -258,7 +251,7 @@ def collect_all():
     # ─────────────────────────────────────────
     # 1. ECOS 데이터
     # ─────────────────────────────────────────
-    print("\n[1/4] 🇰🇷 한국은행(ECOS) 데이터 수집 시작...")
+    print("\n[1/4] 한국은행(ECOS) 데이터 수집 시작...")
     ecos_m_dfs, ecos_d_dfs = [], []
     ecos_indicators = [
         ('722Y001', '0101000', 'kr_base_rate', '한국 기준금리', 'M'),
@@ -268,7 +261,7 @@ def collect_all():
         ('200Y102', '10111', 'kr_gdp', '한국 GDP', 'Q')
     ]
     for stat, item, col, desc, prd in ecos_indicators:
-        print(f"  📊 {desc} ({'월별' if prd == 'M' else '분기별'})...")
+        print(f"  {desc} ({'월별' if prd == 'M' else '분기별'})...")
         req_start = START_YM if prd == 'M' else START_Q
         req_end = END_YM if prd == 'M' else END_Q
         df = fetch_ecos(ecos_key, stat, item, period=prd, start=req_start, end=req_end, col_name=col)
@@ -280,7 +273,7 @@ def collect_all():
     # ─────────────────────────────────────────
     # 2. FRED 데이터
     # ─────────────────────────────────────────
-    print("\n[2/4] 🌐 FRED 데이터 수집 시작...")
+    print("\n[2/4] FRED 데이터 수집 시작...")
     fred_m_dfs, fred_d_dfs = [], []
     fred_m_indicators = [
         ('DEXKOUS', 'kr_usd_exchange', '원/달러 환율'),
@@ -296,13 +289,13 @@ def collect_all():
         ('DCOILWTICO', 'wti_oil', 'WTI 유가')
     ]
     for series_id, col, desc in fred_m_indicators:
-        print(f"  📊 {desc} (월별)...")
+        print(f"  {desc} (월별)...")
         df = fetch_fred(fred_key, series_id, col_name=col, start=START_DASH, end=END_DASH, frequency='m')
         if not df.empty: fred_m_dfs.append(df)
         time.sleep(0.3)
 
     for series_id, col, desc in fred_d_indicators:
-        print(f"  📊 {desc} (일별)...")
+        print(f"  {desc} (일별)...")
         df = fetch_fred(fred_key, series_id, col_name=col, start=START_DASH, end=END_DASH, frequency='d')
         if not df.empty: fred_d_dfs.append(df)
         time.sleep(0.3)
@@ -313,7 +306,7 @@ def collect_all():
     # ─────────────────────────────────────────
     # 3. R-ONE 부동산 데이터
     # ─────────────────────────────────────────
-    print("\n[3/4] 🏢 R-ONE 부동산 데이터 수집 시작...")
+    print("\n[3/4] R-ONE 부동산 데이터 수집 시작...")
     reb_indicators = [
         ('A_2024_00045', '100001', 'house_price_idx', None),
         ('A_2024_00554', '100001', 'apt_trade_count', '500001'),
@@ -335,12 +328,12 @@ def collect_all():
         
         reb_path = os.path.join(save_dir, 'realestate_m.csv')
         reb_merged.to_csv(reb_path, index=False, encoding='utf-8-sig')
-        print(f"✅ R-ONE 부동산 월별 데이터 저장 완료: {reb_path} ({len(reb_merged)}건)")
+        print(f"[완료] R-ONE 부동산 월별 데이터 저장 완료: {reb_path} ({len(reb_merged)}건)")
 
     # ─────────────────────────────────────────
     # 4. yfinance 데이터
     # ─────────────────────────────────────────
-    print("\n[4/4] 📈 yfinance (금융/증시) 데이터 수집 시작...")
+    print("\n[4/4] yfinance (금융/증시) 데이터 수집 시작...")
     tickers = {"gold": "GC=F", "sp500": "^GSPC", "dxy": "DX-Y.NYB", "kospi200": "^KS200"}
     yf_raw = download_yf_all(tickers, START_DASH, END_YF)
     
@@ -348,14 +341,14 @@ def collect_all():
         yf_daily = make_yf_daily(yf_raw)
         yf_daily_path = os.path.join(save_dir, "yfinance_d.csv")
         yf_daily.to_csv(yf_daily_path, index=False, encoding="utf-8-sig")
-        print(f"✅ yfinance 일별 데이터 저장 완료: {yf_daily_path} ({len(yf_daily)}건)")
+        print(f"[완료] yfinance 일별 데이터 저장 완료: {yf_daily_path} ({len(yf_daily)}건)")
 
         yf_monthly = make_yf_monthly(yf_daily)
         yf_monthly_path = os.path.join(save_dir, "yfinance_m.csv")
         yf_monthly.to_csv(yf_monthly_path, index=False, encoding="utf-8-sig")
-        print(f"✅ yfinance 월별 데이터 저장 완료: {yf_monthly_path} ({len(yf_monthly)}건)")
+        print(f"[완료] yfinance 월별 데이터 저장 완료: {yf_monthly_path} ({len(yf_monthly)}건)")
 
-    print("\n🎉 모든 데이터의 수집 및 통합 병합 처리가 완료되었습니다!")
+    print("\n모든 데이터의 수집 및 통합 병합 처리가 완료되었습니다!")
 
 
 def concat_rawdata():
@@ -364,7 +357,7 @@ def concat_rawdata():
     base_dir = os.path.dirname(os.path.dirname(current_dir))
     data_dir = os.path.join(base_dir, 'data', 'ml')
     
-    print(f"📂 데이터 디렉토리 확인: {data_dir}")
+    print(f"데이터 디렉토리 확인: {data_dir}")
 
     # 대상 파일 리스트 정의
     monthly_files = [f for f in os.listdir(data_dir) if f.endswith('_m.csv') and not f.startswith('rawdata')]
@@ -372,7 +365,7 @@ def concat_rawdata():
 
     def merge_logic(file_list, freq, output_filename, monthly_df_for_daily=None):
         if not file_list:
-            print(f"⚠ {output_filename} 생성을 위한 대상 파일이 없습니다.")
+            print(f"[경고] {output_filename} 생성을 위한 대상 파일이 없습니다.")
             return None
 
         dfs = []
@@ -431,7 +424,7 @@ def concat_rawdata():
         # 저장
         output_path = os.path.join(data_dir, output_filename)
         master_df.to_csv(output_path, index=False, encoding='utf-8-sig')
-        print(f"✅ 통합 완료: {output_filename} ({len(master_df)}건, 기간: {master_df['date'].iloc[0]} ~ {master_df['date'].iloc[-1]})")
+        print(f"[완료] 통합 완료: {output_filename} ({len(master_df)}건, 기간: {master_df['date'].iloc[0]} ~ {master_df['date'].iloc[-1]})")
         
         return master_df
 
@@ -460,13 +453,13 @@ def load_and_split_data():
     path_d = os.path.join(data_dir, 'rawdata_d.csv')
 
     if not os.path.exists(path_m) or not os.path.exists(path_d):
-        print("❌ 통합 데이터 파일(rawdata_m.csv 또는 rawdata_d.csv)이 존재하지 않습니다.")
+        print("[오류] 통합 데이터 파일(rawdata_m.csv 또는 rawdata_d.csv)이 존재하지 않습니다.")
         return
 
     df_m = pd.read_csv(path_m)
     df_d = pd.read_csv(path_d)
 
-    print("📊 데이터 로드 완료. 목적별 분리 시작...")
+    print("데이터 로드 완료. 목적별 분리 시작...")
 
     # 2. [금값 데이터] - 일별 (Gold) 파생변수 제거 및 이름 변경
     gold_cols = [
@@ -496,7 +489,7 @@ def load_and_split_data():
     baserate_data.rename(columns={'date': 'loaded_date'}, inplace=True)
     baserate_data.to_csv(os.path.join(data_dir, 'baserate_data.csv'), index=False, encoding='utf-8-sig')
 
-    print(f"✅ CSV 파일 저장 완료: data/ml/ 내 gold, realestate, baserate_data.csv")
+    print(f"[완료] CSV 파일 저장 완료: data/ml/ 내 gold, realestate, baserate_data.csv")
 
     # 5. MySQL 데이터베이스 적재 (새로운 테이블명 적용)
     upload_to_mysql(
@@ -516,7 +509,7 @@ def upload_to_mysql(data_dict):
     db_name = os.getenv('DB_NAME')
 
     if not all([db_user, db_password, db_host, db_name]):
-        print("⚠ DB 연결 정보가 부족하여 데이터베이스 적재를 건너뜁니다.")
+        print("[경고] DB 연결 정보가 부족하여 데이터베이스 적재를 건너뜁니다.")
         return
 
     try:
@@ -592,12 +585,12 @@ def upload_to_mysql(data_dict):
                 # 3. 데이터프레임을 테이블에 삽입 (if_exists='append')
                 df.to_sql(name=table_name, con=conn, if_exists='append', index=False)
                 
-                print(f"🚀 DB 적재 완료: {table_name} ({len(df)} rows)")
+                print(f"[완료] DB 적재 완료: {table_name} ({len(df)} rows)")
 
-        print("\n🎉 모든 데이터 분석 준비 및 DB 적재가 완료되었습니다!")
+        print("\n모든 데이터 분석 준비 및 DB 적재가 완료되었습니다!")
 
     except Exception as e:
-        print(f"❌ DB 적재 중 오류 발생: {e}")
+        print(f"[오류] DB 적재 중 오류 발생: {e}")
 
 if __name__ == '__main__':
     collect_all()

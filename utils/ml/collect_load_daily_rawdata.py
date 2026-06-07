@@ -1,5 +1,4 @@
 import os
-import sys
 import time
 import requests
 import pandas as pd
@@ -8,12 +7,6 @@ import yfinance as yf
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
-
-# Windows 환경에서 콘솔 출력 인코딩 문제 해결 (cp949로 인한 emoji 출력 에러 방지)
-if sys.platform.startswith('win'):
-    import io
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 # ═══════════════════════════════════════════════════
 #  공통 환경 및 날짜 설정 (최근 60일 치만 수집하여 계산 보정)
@@ -222,10 +215,10 @@ def upload_new_records(df, table_name, engine):
         new_data = df.copy()
 
     if new_data.empty:
-        print(f" ╰─ ⏸️ [{table_name}] 이미 최신 상태입니다. (업데이트 없음)")
+        print(f" ╰─ [최신] [{table_name}] 이미 최신 상태입니다. (업데이트 없음)")
     else:
         new_data.to_sql(name=table_name, con=engine, if_exists='append', index=False)
-        print(f" ╰─ 🚀 [{table_name}] 새로운 데이터 {len(new_data)}건 적재 완료! (이후 날짜: {new_data['loaded_date'].iloc[0].strftime('%Y-%m-%d')} ~)")
+        print(f" ╰─ [완료] [{table_name}] 새로운 데이터 {len(new_data)}건 적재 완료! (이후 날짜: {new_data['loaded_date'].iloc[0].strftime('%Y-%m-%d')} ~)")
 
 
 # ═══════════════════════════════════════════════════
@@ -248,12 +241,12 @@ def run_daily_pipeline():
     db_host, db_port, db_name = os.getenv('DB_HOST'), os.getenv('DB_PORT', '3306'), os.getenv('DB_NAME')
 
     if not all([ecos_key, fred_key, reb_key, db_user, db_password, db_host, db_name]):
-        print("❌ .env 설정(API KEY 또는 DB 정보)이 누락되었습니다.")
+        print("[오류] .env 설정(API KEY 또는 DB 정보)이 누락되었습니다.")
         return
 
     engine = create_engine(f"mysql+pymysql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}?charset=utf8mb4")
 
-    print(f"\n🔄 [1/3] 최근 60일 원시 데이터 수집 중... ({START_DASH} ~ {END_DASH})")
+    print(f"\n[1/3] 최근 60일 원시 데이터 수집 중... ({START_DASH} ~ {END_DASH})")
     
     ecos_m_dfs, fred_m_dfs, fred_d_dfs, reb_dfs = [], [], [], []
     
@@ -284,7 +277,7 @@ def run_daily_pipeline():
     yf_daily = make_yf_daily(yf_raw)
     yf_monthly = make_yf_monthly(yf_daily)
 
-    print("🧩 [2/3] 메모리 상 데이터 병합 및 결측치 보정 중...")
+    print("[2/3] 메모리 상 데이터 병합 및 결측치 보정 중...")
     
     # --- 월별 병합 (master_m) ---
     all_m_dfs = ecos_m_dfs + fred_m_dfs + reb_dfs + ([yf_monthly] if not yf_monthly.empty else [])
@@ -320,7 +313,7 @@ def run_daily_pipeline():
     else:
         master_d = pd.DataFrame()
 
-    print("💾 [3/3] DB 증분 적재 (새로운 행만 추가) 중...")
+    print("[3/3] DB 증분 적재 (새로운 행만 추가) 중...")
     
     # Gold (Daily)
     gold_cols = ['date', 'gold', 'kr_usd_exchange', 'wti_oil', 'dxy_proxy', 'vix', 'kospi200', 'sp500', 'kr_cpi']
@@ -340,7 +333,7 @@ def run_daily_pipeline():
     if not br_data.empty: br_data.rename(columns={'date': 'loaded_date'}, inplace=True)
     upload_new_records(br_data, 'ml_baserate_raw', engine)
 
-    print("\n🎉 일일 데이터 자동 수집 및 적재 파이프라인 완료!")
+    print("\n일일 데이터 자동 수집 및 적재 파이프라인 완료!")
 
 if __name__ == '__main__':
     run_daily_pipeline()
