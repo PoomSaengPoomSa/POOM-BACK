@@ -3,6 +3,7 @@ from sqlalchemy import (
     Integer,
     String,
     DateTime,
+    Boolean,
     ForeignKey,
     CheckConstraint,
     Index,
@@ -24,6 +25,7 @@ class Schedule(Base):
     u_id = Column(String(50), ForeignKey("pb_user.u_id"), nullable=False)
     c_id = Column(Integer, ForeignKey("customer.c_id"), nullable=True)
     at_id = Column(Integer, ForeignKey("ai_todo.at_id"), nullable=True)
+    is_completed = Column(Boolean, default=False, nullable=False)
 
     __table_args__ = (
         CheckConstraint(

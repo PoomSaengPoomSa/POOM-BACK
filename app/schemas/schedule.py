@@ -35,6 +35,7 @@ class ScheduleResponse(BaseModel):
     c_id: Optional[int] = None
     at_id: Optional[int] = None
     customer_name: Optional[str] = None
+    is_completed: bool
     model_config = ConfigDict(from_attributes=True)
 
 
