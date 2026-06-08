@@ -1,6 +1,6 @@
 -- MySQL dump 10.13  Distrib 8.0.38, for Win64 (x86_64)
 --
--- Host: 118.67.131.22    Database: poom_db
+-- Host: [REDACTED]    Database: poom_db
 -- ------------------------------------------------------
 -- Server version	8.0.38
 
