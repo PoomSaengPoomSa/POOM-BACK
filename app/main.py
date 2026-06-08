@@ -193,7 +193,7 @@ async def log_request_middleware(request, call_next):
             if payload:
                 user_id = payload.get("sub", "system")
                 role = payload.get("role", "")
-                if "admin" in user_id.lower() or role.lower() == "admin":
+                if "admin" in user_id.lower() or role.lower() in ("admin", "superadmin"):
                     is_admin = True
         except Exception:
             pass

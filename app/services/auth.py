@@ -46,8 +46,12 @@ def login(request: LoginRequest, db: Session) -> TokenResponse:
 
     # PB 유저의 이름 조회
     user_name = "PB직원"
-    if account.role == "admin":
-        user_name = "관리자"
+    if account.role in ("admin", "superadmin"):
+        pb_user = account.pb_user
+        if pb_user:
+            user_name = pb_user.name
+        else:
+            user_name = "관리자"
     else:
         pb_user = account.pb_user
         if pb_user:
@@ -174,10 +178,18 @@ def get_me(current_user, db: Session) -> UserResponse:
     email = ""
     branch_name = None
     position_name = None
-    if current_user.role == "admin":
-        user_name = "관리자"
-        email = "admin@poom.com"
-        position_name = "관리자"
+    if current_user.role in ("admin", "superadmin"):
+        pb_user = current_user.pb_user
+        if pb_user:
+            user_name = pb_user.name
+            email = pb_user.email
+            position_name = pb_user.position
+            if pb_user.branch_rel:
+                branch_name = pb_user.branch_rel.name
+        else:
+            user_name = "관리자"
+            email = "admin@poom.com"
+            position_name = "관리자"
     else:
         pb_user = current_user.pb_user
         if pb_user:

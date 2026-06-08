@@ -639,7 +639,7 @@ async def get_system_usage(period: Optional[str], db: Session) -> UsageDashboard
 async def get_permissions(search: Optional[str], branch: Optional[str], db: Session) -> PermissionListResponse:
     query = db.query(Account).options(
         joinedload(Account.pb_user).joinedload(PbUser.branch_rel)
-    ).filter(Account.role != "admin")
+    ).filter(Account.role == "user")
 
     if search:
         query = query.outerjoin(PbUser, Account.id == PbUser.u_id)
