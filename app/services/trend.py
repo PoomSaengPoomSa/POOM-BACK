@@ -103,9 +103,10 @@ async def get_trend_dashboard(current_user, db: Session) -> TrendDashboardRespon
     international_news = []
     
     # 1. Elasticsearch에서 기사 조회 시도 (카테고리별 최신 5건)
+    import asyncio
     try:
         async with httpx.AsyncClient(timeout=1.0) as client:
-            resp_econ = await client.post(
+            econ_task = client.post(
                 f"{ES_HOST}/sbs_news/_search",
                 json={
                     "query": {"term": {"category": "경제"}},
@@ -113,7 +114,7 @@ async def get_trend_dashboard(current_user, db: Session) -> TrendDashboardRespon
                     "size": 5
                 }
             )
-            resp_pol = await client.post(
+            pol_task = client.post(
                 f"{ES_HOST}/sbs_news/_search",
                 json={
                     "query": {"term": {"category": "정치"}},
@@ -121,7 +122,7 @@ async def get_trend_dashboard(current_user, db: Session) -> TrendDashboardRespon
                     "size": 5
                 }
             )
-            resp_mug = await client.post(
+            mug_task = client.post(
                 f"{ES_HOST}/sbs_news/_search",
                 json={
                     "query": {"term": {"category": "국제"}},
@@ -129,6 +130,8 @@ async def get_trend_dashboard(current_user, db: Session) -> TrendDashboardRespon
                     "size": 5
                 }
             )
+            
+            resp_econ, resp_pol, resp_mug = await asyncio.gather(econ_task, pol_task, mug_task)
             
             if resp_econ.status_code == 200:
                 economy_news = [
@@ -396,11 +399,22 @@ async def get_trend_dashboard(current_user, db: Session) -> TrendDashboardRespon
     ai_summaries = {}
     current_time = time.time()
     
-    for cat_key, articles in [("economy", economy_news), ("politics", politics_news), ("international", international_news)]:
+    tasks = []
+    cat_keys = ["economy", "politics", "international"]
+    articles_list = [economy_news, politics_news, international_news]
+    cat_names = ["경제", "정치", "국제"]
+    
+    for cat_key, articles, cat_name in zip(cat_keys, articles_list, cat_names):
         cache_data = AI_NEWS_CACHE[cat_key]
         if not cache_data["summary"] or (current_time - cache_data["updated_at"] > CACHE_EXPIRE_SECONDS) or any(cache_data["summary"].startswith(x) for x in ["- 최신 기사가 아직 수집되지 않았습니다.", "- 실시간 AI 요약 브리핑을"]):
-            cat_name = "경제" if cat_key == "economy" else "정치" if cat_key == "politics" else "국제"
-            summary_txt = await fetch_ai_news_summary(cat_name, articles)
+            tasks.append((cat_key, fetch_ai_news_summary(cat_name, articles)))
+        else:
+            ai_summaries[cat_key] = cache_data["summary"]
+            
+    if tasks:
+        keys, coros = zip(*tasks)
+        results = await asyncio.gather(*coros)
+        for cat_key, summary_txt in zip(keys, results):
             if summary_txt and not any(summary_txt.startswith(x) for x in [
                 "- 실시간 AI 요약 브리핑을 생성하는 도중",
                 "- 실시간 AI 요약 브리핑을 준비",
@@ -413,8 +427,6 @@ async def get_trend_dashboard(current_user, db: Session) -> TrendDashboardRespon
                 ai_summaries[cat_key] = summary_txt
             else:
                 ai_summaries[cat_key] = summary_txt
-        else:
-            ai_summaries[cat_key] = cache_data["summary"]
 
     ai_summaries["itScience"] = ai_summaries.get("international", "")
 

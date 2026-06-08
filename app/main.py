@@ -93,6 +93,11 @@ async def start_periodic_visit_briefing_scheduler():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("🚀 POOM API 서버가 시작되었습니다.")
+    # Elasticsearch 인덱스 매핑 생성 비동기 처리
+    from app.services.admin import ensure_system_logs_index, ensure_employee_logs_index
+    asyncio.create_task(ensure_system_logs_index(ES_HOST))
+    asyncio.create_task(ensure_employee_logs_index(ES_HOST))
+
     # 백그라운드 스케줄러 태스크 실행
     scheduler_task = asyncio.create_task(start_periodic_visit_briefing_scheduler())
     yield
