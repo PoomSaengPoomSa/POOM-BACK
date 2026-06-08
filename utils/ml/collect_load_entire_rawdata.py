@@ -294,10 +294,30 @@ def collect_all():
         if not df.empty: fred_m_dfs.append(df)
         time.sleep(0.3)
 
+    #for series_id, col, desc in fred_d_indicators:
+    #    print(f"  {desc} (일별)...")
+    #    df = fetch_fred(fred_key, series_id, col_name=col, start=START_DASH, end=END_DASH, frequency='d')
+    #    if not df.empty: fred_d_dfs.append(df)
+    #    time.sleep(0.3)
+
     for series_id, col, desc in fred_d_indicators:
         print(f"  {desc} (일별)...")
-        df = fetch_fred(fred_key, series_id, col_name=col, start=START_DASH, end=END_DASH, frequency='d')
-        if not df.empty: fred_d_dfs.append(df)
+
+        # DTWEXBGS는 FRED에서 주간 데이터
+        freq = 'w' if series_id == 'DTWEXBGS' else 'd'
+        
+        df = fetch_fred(
+            fred_key,
+            series_id,
+            col_name=col,
+            start=START_DASH,
+            end=END_DASH,
+            frequency=freq
+        )
+
+        if not df.empty:
+            fred_d_dfs.append(df)
+
         time.sleep(0.3)
 
     merge_and_save(fred_m_dfs, os.path.join(save_dir, 'fred_m.csv'), "FRED 월별 데이터")
@@ -395,6 +415,10 @@ def concat_rawdata():
         # 순차 병합
         for df in dfs:
             master_df = pd.merge(master_df, df, on='date', how='left')
+        
+        # dxy_proxy는 주간 데이터이므로 일별 데이터로 보간
+        if freq == 'D' and 'dxy_proxy' in master_df.columns:
+            master_df['dxy_proxy'] = master_df['dxy_proxy'].ffill()
 
         # 🌟 [요청 사항] 월별 데이터 처리 시, 분기별 데이터(GDP)를 해당 분기의 모든 월에 채움 (ffill) 유지!
         if freq == 'M' and 'kr_gdp' in master_df.columns:
@@ -474,7 +498,8 @@ def load_and_split_data():
     re_cols = [
         'date', 'house_price_idx', 'kr_cpi', 
         'kr_unemployment', 'kr_base_rate', 'kr_mortgage_rate', 
-        'kospi200', 'apt_trade_count', 'kr_m2', 'buyer_dominance'
+        'kospi200', 'apt_trade_count', 'kr_m2', 'buyer_dominance',
+        'us_fed_rate', 'vix', 'wti_oil', 'kr_usd_exchange'
     ]
     realestate_data = df_m[[c for c in re_cols if c in df_m.columns]].copy()
     realestate_data.rename(columns={'date': 'loaded_date'}, inplace=True)
@@ -574,6 +599,10 @@ def upload_to_mysql(data_dict):
                         apt_trade_count DECIMAL(15,2),
                         kr_m2 DECIMAL(15,2),
                         buyer_dominance DECIMAL(15,2),
+                        us_fed_rate DECIMAL(15,2),
+                        vix DECIMAL(15,2),
+                        wti_oil DECIMAL(15,2),
+                        kr_usd_exchange DECIMAL(15,2),
                         PRIMARY KEY (rr_id, loaded_date)
                     )
                     """

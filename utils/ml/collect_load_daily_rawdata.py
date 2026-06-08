@@ -202,6 +202,10 @@ def upload_new_records(df, table_name, engine):
                 apt_trade_count DECIMAL(15,2),
                 kr_m2 DECIMAL(15,2),
                 buyer_dominance DECIMAL(15,2),
+                us_fed_rate DECIMAL(15,4),
+                vix DECIMAL(15,4),
+                wti_oil DECIMAL(15,4),
+                kr_usd_exchange DECIMAL(15,4),
                 PRIMARY KEY (rr_id, loaded_date)
             )"""))
 
@@ -262,10 +266,15 @@ def run_daily_pipeline():
         df = fetch_fred(fred_key, sid, col, START_DASH, END_DASH, 'm')
         if not df.empty: fred_m_dfs.append(df)
         time.sleep(0.2)
-    for sid, col in [('DEXKOUS', 'kr_usd_exchange'), ('VIXCLS', 'vix'), ('DTWEXBGS', 'dxy_proxy'), ('DCOILWTICO', 'wti_oil')]:
+    for sid, col in [('DEXKOUS', 'kr_usd_exchange'), ('VIXCLS', 'vix'), ('DCOILWTICO', 'wti_oil')]:
         df = fetch_fred(fred_key, sid, col, START_DASH, END_DASH, 'd')
         if not df.empty: fred_d_dfs.append(df)
         time.sleep(0.2)
+    # DTWEXBGS(달러 인덱스)는 FRED에서 weekly 주기 → 별도 수집 후 ffill로 일별 보간
+    dxy_df = fetch_fred(fred_key, 'DTWEXBGS', 'dxy_proxy', START_DASH, END_DASH, 'w')
+    if not dxy_df.empty:
+        fred_d_dfs.append(dxy_df)
+    time.sleep(0.2)
 
     # R-ONE
     for stat, item, col, rcode in [('A_2024_00045', '100001', 'house_price_idx', None), ('A_2024_00554', '100001', 'apt_trade_count', '500001'), ('A_2024_00076', '100001', 'buyer_dominance', None)]:
@@ -299,6 +308,10 @@ def run_daily_pipeline():
         for df in all_d_dfs[1:]:
             master_d = pd.merge(master_d, df, on='date', how='outer')
         master_d['date'] = pd.to_datetime(master_d['date'])
+        # dxy_proxy(주간 데이터)는 merge 후 ffill로 일별 보간
+        if 'dxy_proxy' in master_d.columns:
+            master_d = master_d.sort_values('date')
+            master_d['dxy_proxy'] = master_d['dxy_proxy'].ffill()
         
         # 월별 지표(CPI 등)를 일별로 Broadcasting
         if not master_m.empty and 'kr_cpi' in master_m.columns:
@@ -322,7 +335,7 @@ def run_daily_pipeline():
     upload_new_records(gold_data, 'ml_gold_raw', engine)
 
     # Real Estate (Monthly)
-    re_cols = ['date', 'house_price_idx', 'kr_cpi', 'kr_unemployment', 'kr_base_rate', 'kr_mortgage_rate', 'kospi200', 'apt_trade_count', 'kr_m2', 'buyer_dominance']
+    re_cols = ['date', 'house_price_idx', 'kr_cpi', 'kr_unemployment', 'kr_base_rate', 'kr_mortgage_rate', 'kospi200', 'apt_trade_count', 'kr_m2', 'buyer_dominance', 'us_fed_rate', 'vix', 'wti_oil', 'kr_usd_exchange']
     re_data = master_m[[c for c in re_cols if c in master_m.columns]].copy() if not master_m.empty else pd.DataFrame()
     if not re_data.empty: re_data.rename(columns={'date': 'loaded_date'}, inplace=True)
     upload_new_records(re_data, 'ml_realestate_raw', engine)
