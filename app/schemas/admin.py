@@ -209,3 +209,17 @@ class CustomerListResponse(BaseModel):
 class TransferResponse(BaseModel):
     message: str
     success: bool = True
+
+
+class BranchItem(BaseModel):
+    b_id: int
+    name: str
+    region: str
+    b_phone: str
+    address: str
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BranchListResponse(BaseModel):
+    branches: List[BranchItem]
+

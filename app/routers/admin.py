@@ -17,6 +17,7 @@ from app.schemas.admin import (
     CustomerListResponse,
     TransferRequest,
     TransferResponse,
+    BranchListResponse,
 )
 from app.services import admin as admin_service
 
@@ -145,4 +146,14 @@ async def transfer_customers(
     current_branch_manager=Depends(get_current_branch_manager),
 ):
     """고객 이관 처리"""
-    return await admin_service.transfer_customers(u_id, request, db)
+    return await admin_service.transfer_customers(u_id, request, db, admin_id=current_branch_manager.id)
+
+
+@router.get("/branches", response_model=BranchListResponse)
+async def get_branches(
+    db: Session = Depends(get_db),
+    current_branch_manager=Depends(get_current_branch_manager),
+):
+    """지점 목록 조회"""
+    return await admin_service.get_branches(db)
+

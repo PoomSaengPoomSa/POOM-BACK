@@ -36,6 +36,7 @@ from app.schemas.admin import (
     RecentErrorLog,
     MLPerformanceMetrics,
     RecentActivityLog,
+    BranchListResponse,
 )
 from datetime import timezone 
 
@@ -784,7 +785,7 @@ async def get_employee_customers(u_id: str, db: Session) -> CustomerListResponse
     return CustomerListResponse(customers=customers, total=len(customers_db))
 
 
-async def transfer_customers(u_id: str, request: TransferRequest, db: Session) -> TransferResponse:
+async def transfer_customers(u_id: str, request: TransferRequest, db: Session, admin_id: str) -> TransferResponse:
     from_user = db.query(PbUser).filter(PbUser.u_id == u_id).first()
     to_user = db.query(PbUser).filter(PbUser.u_id == request.receiver_u_id).first()
 
@@ -795,7 +796,7 @@ async def transfer_customers(u_id: str, request: TransferRequest, db: Session) -
         for cid in request.customer_ids:
             db.query(InCharge).filter(InCharge.u_id == u_id, InCharge.c_id == cid).delete()
             db.add(InCharge(u_id=request.receiver_u_id, c_id=cid))
-            db.add(Handover(a_id="admin1", c_id=cid, from_u_id=u_id, to_u_id=request.receiver_u_id, status="완료"))
+            db.add(Handover(a_id=admin_id, c_id=cid, from_u_id=u_id, to_u_id=request.receiver_u_id, status="완료"))
 
         if db.query(InCharge).filter(InCharge.u_id == u_id).count() == 0:
             from_user.branch = request.target_branch
@@ -807,3 +808,8 @@ async def transfer_customers(u_id: str, request: TransferRequest, db: Session) -
         db.rollback()
         logger.error(f"고객 이관 중 오류 발생: {e!r}")
         return TransferResponse(message="처리 중 오류가 발생했습니다.", success=False)
+
+
+async def get_branches(db: Session) -> BranchListResponse:
+    branches = db.query(Branch).order_by(Branch.b_id.asc()).all()
+    return BranchListResponse(branches=branches)
