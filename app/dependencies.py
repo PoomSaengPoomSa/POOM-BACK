@@ -38,11 +38,11 @@ def get_current_user(
 def get_current_admin(
     current_user: Account = Depends(get_current_user),
 ) -> Account:
-    """현재 사용자가 관리자인지 확인"""
-    if current_user.role != "admin":
+    """현재 사용자가 슈퍼 관리자(superadmin)인지 확인"""
+    if current_user.role != "superadmin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="관리자 권한이 필요합니다.",
+            detail="슈퍼 관리자 권한이 필요합니다.",
         )
     return current_user
 
@@ -50,16 +50,11 @@ def get_current_admin(
 def get_current_branch_manager(
     current_user: Account = Depends(get_current_user),
 ) -> Account:
-    """현재 사용자가 지점장(pb_user.position == '지점장')이거나 관리자인지 확인"""
-    is_branch_manager = (
-        current_user.pb_user is not None and 
-        current_user.pb_user.position == "지점장"
-    )
-    is_admin = current_user.role == "admin"
-    
-    if not (is_admin or is_branch_manager):
+    """현재 사용자가 관리자(admin/superadmin)인지 확인"""
+    if current_user.role not in ("admin", "superadmin"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="지점장 또는 관리자 권한이 필요합니다.",
+            detail="관리자 권한이 필요합니다.",
         )
     return current_user
+
