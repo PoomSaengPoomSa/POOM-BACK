@@ -254,6 +254,7 @@ origins = [
     "http://127.0.0.1:5173",
     "http://127.0.0.1:5174",
     "http://127.0.0.1:3000",
+    "http://POOM-ALB-2078344184.ap-northeast-2.elb.amazonaws.com",
 ]
 
 app.add_middleware(
