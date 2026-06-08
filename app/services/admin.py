@@ -116,9 +116,6 @@ async def get_system_dashboard(
 ) -> SystemDashboardResponse:
     """시스템 대시보드 - 실시간 ES 로그 집계"""
 
-    # 인덱스 매핑 보장 (seed X)
-    await ensure_system_logs_index(ES_HOST)
-
     logs = []
     es_status = "정상"
 
@@ -510,14 +507,14 @@ async def get_weekly_trend(db: Session) -> WeeklyTrendResponse:
 
 async def get_employee_usage(period: Optional[str], db: Session) -> EmployeeUsageResponse:
     """직원 현황 + 실시간 최근 활동 로그 (employee_logs 기반)"""
+    import asyncio
 
-    # 인덱스 매핑 보장 (seed X)
-    await ensure_employee_logs_index(ES_HOST)
-
-    # 1. Elasticsearch에서 최근 10분간 기록이 있는 고유 user_id 목록 확인하여 접속 중인지 체크
     active_users = set()
-    try:
-        async with httpx.AsyncClient(timeout=3.0, headers={"bypass-tunnel-reminder": "true"}, http2=False) as client:
+    recent_activities = []
+    es_status = "정상"
+
+    async def fetch_active_users(client):
+        try:
             response = await client.post(
                 f"{ES_HOST}/system_logs/_search",
                 json={
@@ -542,8 +539,57 @@ async def get_employee_usage(period: Optional[str], db: Session) -> EmployeeUsag
                     uid = hit.get("_source", {}).get("user_id")
                     if uid:
                         active_users.add(uid)
+            else:
+                logger.warning(f"ES active check for usage list failed: {response.status_code}")
+        except Exception as e:
+            logger.warning(f"ES active check for usage list failed: {e!r}")
+
+    async def fetch_recent_activities(client):
+        nonlocal es_status
+        try:
+            response = await client.post(
+                f"{ES_HOST}/employee_logs/_search",
+                json={
+                    "query": {"range": {"timestamp": {"gte": "now-24h"}}},
+                    "sort": [{"timestamp": {"order": "desc"}}],
+                    "size": 15,
+                }
+            )
+            if response.status_code == 200:
+                hits = response.json().get("hits", {}).get("hits", [])
+                for hit in hits:
+                    source = hit.get("_source", {})
+                    ts_str = source.get("timestamp", "")
+                    try:
+                        ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                        local_ts = ts + timedelta(hours=9)
+                        time_str = local_ts.strftime("%H:%M")
+                    except Exception:
+                        time_str = "--:--"
+
+                    recent_activities.append(RecentActivityLog(
+                        time=time_str,
+                        name=source.get("name", source.get("user_id", "unknown")),
+                        branch=source.get("branch", "미지정 지점"),
+                        feature=source.get("feature", ""),
+                    ))
+            else:
+                logger.warning(f"ES employee_logs 조회 실패: {response.status_code}")
+                es_status = "오류"
+        except Exception as e:
+            logger.warning(f"ES employee_logs 연결 실패: {e!r}")
+            es_status = "오류"
+
+    # ES 데이터 병렬 조회
+    try:
+        async with httpx.AsyncClient(timeout=3.0, headers={"bypass-tunnel-reminder": "true"}, http2=False) as client:
+            await asyncio.gather(
+                fetch_active_users(client),
+                fetch_recent_activities(client)
+            )
     except Exception as e:
-        logger.warning(f"ES active check for usage list failed: {e!r}")
+        logger.warning(f"ES parallel query failed: {e!r}")
+        es_status = "오류"
 
     # 2. 직원 현황은 DB의 account 테이블 중 role이 'user'인 애들을 PbUser와 조인하여 이름(name) 순으로 정렬
     accounts = (
@@ -582,44 +628,6 @@ async def get_employee_usage(period: Optional[str], db: Session) -> EmployeeUsag
             status=status_str,
             statusClass=status_cls,
         ))
-
-    # 최근 활동 로그는 ES에서
-    recent_activities = []
-    es_status = "정상"
-    try:
-        async with httpx.AsyncClient(timeout=3.0, headers={"bypass-tunnel-reminder": "true"}, http2=False) as client:
-            response = await client.post(
-                f"{ES_HOST}/employee_logs/_search",
-                json={
-                    "query": {"range": {"timestamp": {"gte": "now-24h"}}},
-                    "sort": [{"timestamp": {"order": "desc"}}],
-                    "size": 15,
-                }
-            )
-            if response.status_code == 200:
-                hits = response.json().get("hits", {}).get("hits", [])
-                for hit in hits:
-                    source = hit.get("_source", {})
-                    ts_str = source.get("timestamp", "")
-                    try:
-                        ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-                        local_ts = ts + timedelta(hours=9)
-                        time_str = local_ts.strftime("%H:%M")
-                    except Exception:
-                        time_str = "--:--"
-
-                    recent_activities.append(RecentActivityLog(
-                        time=time_str,
-                        name=source.get("name", source.get("user_id", "unknown")),
-                        branch=source.get("branch", "미지정 지점"),
-                        feature=source.get("feature", ""),
-                    ))
-            else:
-                logger.warning(f"ES employee_logs 조회 실패: {response.status_code}")
-                es_status = "오류"
-    except Exception as e:
-        logger.warning(f"ES employee_logs 연결 실패: {e!r}")
-        es_status = "오류"
 
     return EmployeeUsageResponse(
         usage=usage_list,

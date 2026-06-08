@@ -52,12 +52,39 @@ def get_customers(
     db: Session,
 ) -> List[CustomerListResponse]:
     """고객 목록 조회"""
-    query = db.query(Customer).join(InCharge, Customer.c_id == InCharge.c_id).filter(InCharge.u_id == current_user.id)
+    from app.models.churn_level import ChurnLevel
+    from app.models.in_charge import InCharge
+    from sqlalchemy import func
+
+    # Subquery to find the latest created_date for each c_id
+    subq = (
+        db.query(
+            ChurnLevel.c_id,
+            func.max(ChurnLevel.created_date).label("max_date")
+        )
+        .group_by(ChurnLevel.c_id)
+        .subquery()
+    )
+
+    # Join the subquery back to ChurnLevel to get the latest grade and reason
+    latest_churn = (
+        db.query(ChurnLevel.c_id, ChurnLevel.grade, ChurnLevel.reason)
+        .join(
+            subq,
+            (ChurnLevel.c_id == subq.c.c_id) & (ChurnLevel.created_date == subq.c.max_date)
+        )
+        .subquery()
+    )
+
+    query = (
+        db.query(Customer, latest_churn.c.grade, latest_churn.c.reason)
+        .join(InCharge, Customer.c_id == InCharge.c_id)
+        .filter(InCharge.u_id == current_user.id)
+        .outerjoin(latest_churn, Customer.c_id == latest_churn.c.c_id)
+    )
     
     # 탭별 필터링 기능 (오늘 방문, 전체 고객 등)
     if tab == "today":
-        # 데모용: c_id가 짝수인 고객들을 오늘 방문 고객으로 필터링하되,
-        # 실제로 등록된 신규 고객(llm_insight == "신규 등록 고객입니다.")은 오늘 일정이 존재하지 않으면 오늘 방문 목록에서 제외
         from app.models.schedule import Schedule
         from datetime import datetime, time
         
@@ -84,7 +111,7 @@ def get_customers(
     
     # DTO 포맷 매핑 (number -> phone)
     result = []
-    for c in customers:
+    for c, churn_grade, churn_reason in customers:
         result.append(
             CustomerListResponse(
                 c_id=c.c_id,
@@ -95,6 +122,8 @@ def get_customers(
                 total_assets=c.total_assets,
                 gender=c.gender,
                 grade=c.grade,
+                churn_grade=churn_grade,
+                churn_reason=churn_reason,
             )
         )
     return result

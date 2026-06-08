@@ -37,6 +37,8 @@ class CustomerListResponse(BaseModel):
     total_assets: int
     gender: Optional[str] = None
     grade: Optional[str] = None
+    churn_grade: Optional[str] = None
+    churn_reason: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
 
