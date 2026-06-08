@@ -278,3 +278,17 @@ app.include_router(notification.router, prefix="/api/v1", tags=["Notification"])
 @app.get("/health", tags=["Health"])
 async def health_check():
     return {"status": "ok"}
+
+
+@app.post("/api/v1/customer-main/run")
+async def run_customer_main_gateway(req: dict):
+    import httpx
+    from fastapi import HTTPException
+    settings = get_settings()
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        try:
+            resp = await client.post(f"{settings.POOM_AI_URL}/api/v1/customer-main/run", json=req)
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"AI API gateway forwarding failed: {str(e)}")
