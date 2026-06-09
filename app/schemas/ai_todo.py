@@ -39,3 +39,9 @@ class MessageResponse(BaseModel):
 class AiTodoUnconfirmResponse(BaseModel):
     message: str
     success: bool = True
+
+
+class AiTodoRunRequest(BaseModel):
+    u_id: str = "all"
+    date: str
+
