@@ -266,9 +266,9 @@ origins = [
     "http://127.0.0.1:5173",
     "http://127.0.0.1:5174",
     "http://127.0.0.1:3000",
-    "http://poom-alb-2078344184.ap-northeast-2.elb.amazonaws.com",
-    "http://poom-alb-2078344184.ap-northeast-2.elb.amazonaws.com:8000",
-    "http://poom-alb-2078344184.ap-northeast-2.elb.amazonaws.com:3000",
+    "http://poom-alb-1963738321.ap-northeast-2.elb.amazonaws.com,
+    "http://poom-alb-1963738321.ap-northeast-2.elb.amazonaws.com:8000",
+    "http://poom-alb-1963738321.ap-northeast-2.elb.amazonaws.com:3000",
 ]
 
 app.add_middleware(
