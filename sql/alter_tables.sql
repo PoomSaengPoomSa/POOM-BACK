@@ -97,22 +97,22 @@ MODIFY COLUMN return_type VARCHAR(30) NOT NULL;
 
 ALTER TABLE AI_TODO
 ADD COLUMN c_id INT;
--- user1 고객 관련 row
-UPDATE AI_TODO SET c_id = 1001 WHERE u_id = 'user1' AND title LIKE '%1001%';
-UPDATE AI_TODO SET c_id = 1002 WHERE u_id = 'user1' AND title LIKE '%1002%';
-UPDATE AI_TODO SET c_id = 1003 WHERE u_id = 'user1' AND title LIKE '%1003%';
-UPDATE AI_TODO SET c_id = 1004 WHERE u_id = 'user1' AND title LIKE '%1004%';
-UPDATE AI_TODO SET c_id = 1005 WHERE u_id = 'user1' AND title LIKE '%1005%';
+-- pb_b1_1 고객 관련 row
+UPDATE AI_TODO SET c_id = 1 WHERE u_id = 'pb_b1_1' AND title LIKE '%(1)%';
+UPDATE AI_TODO SET c_id = 2 WHERE u_id = 'pb_b1_1' AND title LIKE '%(2)%';
+UPDATE AI_TODO SET c_id = 3 WHERE u_id = 'pb_b1_1' AND title LIKE '%(3)%';
+UPDATE AI_TODO SET c_id = 4 WHERE u_id = 'pb_b1_1' AND title LIKE '%(4)%';
+UPDATE AI_TODO SET c_id = 5 WHERE u_id = 'pb_b1_1' AND title LIKE '%(5)%';
 
--- user2 고객 관련 row
-UPDATE AI_TODO SET c_id = 1043 WHERE u_id = 'user2' AND title LIKE '%1043%';
-UPDATE AI_TODO SET c_id = 1044 WHERE u_id = 'user2' AND title LIKE '%1044%';
-UPDATE AI_TODO SET c_id = 1045 WHERE u_id = 'user2' AND title LIKE '%1045%';
-UPDATE AI_TODO SET c_id = 1046 WHERE u_id = 'user2' AND title LIKE '%1046%';
-UPDATE AI_TODO SET c_id = 1047 WHERE u_id = 'user2' AND title LIKE '%1047%';
-UPDATE AI_TODO SET c_id = 1048 WHERE u_id = 'user2' AND title LIKE '%1048%';
-UPDATE AI_TODO SET c_id = 1049 WHERE u_id = 'user2' AND title LIKE '%1049%';
-UPDATE AI_TODO SET c_id = 1050 WHERE u_id = 'user2' AND title LIKE '%1050%';
+-- pb_b1_2 고객 관련 row
+UPDATE AI_TODO SET c_id = 43 WHERE u_id = 'pb_b1_2' AND title LIKE '%(43)%';
+UPDATE AI_TODO SET c_id = 44 WHERE u_id = 'pb_b1_2' AND title LIKE '%(44)%';
+UPDATE AI_TODO SET c_id = 45 WHERE u_id = 'pb_b1_2' AND title LIKE '%(45)%';
+UPDATE AI_TODO SET c_id = 46 WHERE u_id = 'pb_b1_2' AND title LIKE '%(46)%';
+UPDATE AI_TODO SET c_id = 47 WHERE u_id = 'pb_b1_2' AND title LIKE '%(47)%';
+UPDATE AI_TODO SET c_id = 48 WHERE u_id = 'pb_b1_2' AND title LIKE '%(48)%';
+UPDATE AI_TODO SET c_id = 49 WHERE u_id = 'pb_b1_2' AND title LIKE '%(49)%';
+UPDATE AI_TODO SET c_id = 50 WHERE u_id = 'pb_b1_2' AND title LIKE '%(50)%';
 
 -- KPI 기반 / 신규 상품 분석 카테고리는 c_id = NULL 유지 (그대로 둠)
 

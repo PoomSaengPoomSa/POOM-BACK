@@ -31,7 +31,7 @@ async def profile_function(name, func, *args, **kwargs):
 async def main():
     print("=================== PROFILING DB QUERIES & SERVICES ===================")
     db = SessionLocal()
-    mock_user = MockUser("user1", "user")
+    mock_user = MockUser("pb_b1_1", "user")
     mock_admin = MockUser("admin1", "admin")
     
     try:
@@ -43,13 +43,13 @@ async def main():
         await profile_function("get_customers (all)", get_customers, "all", 1, 30, mock_user, db)
         await profile_function("get_customers (today)", get_customers, "today", 1, 30, mock_user, db)
         
-        # Let's pick a valid customer ID (c_id = 1001)
-        await profile_function("get_customer_memos", get_customer_memos, 1001, None, 10, mock_user, db)
-        await profile_function("get_visit_statistics", get_visit_statistics, 1001, mock_user, db)
+        # Let's pick a valid customer ID (c_id = 1)
+        await profile_function("get_customer_memos", get_customer_memos, 1, None, 10, mock_user, db)
+        await profile_function("get_visit_statistics", get_visit_statistics, 1, mock_user, db)
         
         # Profile Admin services
         await profile_function("get_permissions", get_permissions, None, None, db)
-        await profile_function("get_employee_customers", get_employee_customers, "user1", db)
+        await profile_function("get_employee_customers", get_employee_customers, "pb_b1_1", db)
         await profile_function("get_employee_usage", get_employee_usage, "month", db)
         
     except Exception as e:
