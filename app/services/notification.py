@@ -186,6 +186,17 @@ def get_notifications(
     # 최신 알림 순 정렬
     notifs = query.order_by(Notification.created_time.desc()).all()
     
+    # 데이터베이스 중복 적재 건 제거 (동일 category, title, content인 경우 가장 최신 1건만 유지)
+    seen_db_notifs = set()
+    unique_notifs = []
+    for n in notifs:
+        content_val = n.content or ""
+        key = (n.category, n.title, content_val)
+        if key not in seen_db_notifs:
+            seen_db_notifs.add(key)
+            unique_notifs.append(n)
+    notifs = unique_notifs
+    
     # 정렬 기준 시간 계산 함수 (방문 예정 브리핑은 예약 시간 기준, 나머지는 생성 시간 기준)
     def get_sort_key(n_obj):
         if n_obj.category == "방문 예정 브리핑" and n_obj.schedule:
@@ -206,12 +217,12 @@ def get_notifications(
         if tab == "today" and not is_today:
             continue
             
-        # '방문 예정 브리핑'의 경우, 스케줄이 존재하면 예약 시간 30분 전부터 정각 사이일 때만 알림 제공하며, 스케줄 유무 관계없이 항상 단독 노출 처리합니다.
+        # '방문 예정 브리핑'의 경우, 스케줄이 존재하면 예약 시간 30분 전부터 노출을 시작합니다. (과거 알림도 목록에 유지)
         if n.category == "방문 예정 브리핑":
             if n.schedule:
                 now = get_kst_now()
                 trigger_time = n.schedule.execution_date - datetime.timedelta(minutes=30)
-                if not (trigger_time <= now <= n.schedule.execution_date):
+                if now < trigger_time:
                     continue
             standalone_notifs.append(n)
         elif n.c_id is not None:
