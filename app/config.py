@@ -1,6 +1,7 @@
 import os
 from functools import lru_cache
 from pathlib import Path
+from typing import List  # 👈 List 타입을 위해 추가
 
 from pydantic_settings import BaseSettings
 
@@ -10,6 +11,10 @@ ENV_PATH = Path(__file__).resolve().parent.parent.parent / ".env"
 
 class Settings(BaseSettings):
     """애플리케이션 환경 설정"""
+
+    # CORS 관리 👈 추가된 부분
+    # .env에 값이 없을 때를 대비해 기본값으로 로컬 주소를 넣어둡니다.
+    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
 
     # Database
     DB_USER: str = ""
@@ -46,6 +51,11 @@ class Settings(BaseSettings):
             f"mysql+pymysql://{self.DB_USER}:{self.DB_PASSWORD}"
             f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
         )
+
+    # comma(,)로 구분된 문자열을 파이썬 리스트로 변환
+    @property
+    def cors_origins_list(self) -> List[str]:
+        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
 
     model_config = {
         "env_file": str(ENV_PATH),
