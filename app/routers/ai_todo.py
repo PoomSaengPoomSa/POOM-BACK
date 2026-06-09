@@ -9,6 +9,7 @@ from app.schemas.ai_todo import (
     AiTodoConfirmResponse,
     AiTodoUnconfirmResponse,
     MessageResponse,
+    AiTodoRunRequest,
 )
 from app.services import ai_todo as ai_todo_service
 
@@ -57,8 +58,7 @@ def delete_ai_todo(
 
 @router.post("/run")
 def run_ai_todo_agent(
-    u_id: str = Query("all", description="PB ID (또는 'all'로 전체 PB 대상 구동)"),
-    date: str = Query(..., description="분석 기준일 YYYY-MM-DD"),
+    request: AiTodoRunRequest,
 ):
     """AI 투두 에이전트 구동 및 적재 트리거"""
-    return ai_todo_service.run_ai_todo_agent_sync(u_id, date)
+    return ai_todo_service.run_ai_todo_agent_sync(request.u_id, request.date)
