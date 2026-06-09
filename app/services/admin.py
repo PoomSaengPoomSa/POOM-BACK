@@ -334,44 +334,57 @@ async def get_employee_dashboard(
     # 1. 전체 직원 수는 account 테이블에서 role이 'user'인 것 카운트
     total_pb = db.query(Account).filter(Account.role == "user").count()
 
-    # 2. 현재 접속 직원은 Elasticsearch의 system_logs 또는 employee_logs에서 최근 10분간 기록이 있는 고유 user_id 목록 확인
-    active_users = set()
+    # 2. 현재 접속 직원은 로컬 온라인 트래커(10분 내 활동 기록)를 사용하여 확인
+    from app.utils.online_tracker import get_active_users
+    active_users = get_active_users()
+    
     es_status = "정상"
+    # ES 연결 상태만 별도로 체크 (대시보드 에러 표시용)
     try:
         async with httpx.AsyncClient(timeout=3.0, headers={"bypass-tunnel-reminder": "true"}, http2=False) as client:
-            response = await client.post(
-                f"{ES_HOST}/system_logs/_search",
-                json={
-                    "query": {
-                        "bool": {
-                            "must": [
-                                {"range": {"timestamp": {"gte": "now-10m"}}}
-                            ],
-                            "must_not": [
-                                {"term": {"user_id": "system"}},
-                                {"term": {"user_id": "admin1"}}
-                            ]
-                        }
-                    },
-                    "_source": ["user_id"],
-                    "size": 1000
-                }
-            )
-            if response.status_code == 200:
-                hits = response.json().get("hits", {}).get("hits", [])
-                for hit in hits:
-                    uid = hit.get("_source", {}).get("user_id")
-                    if uid:
-                        active_users.add(uid)
-            else:
-                logger.warning(f"ES system_logs active check failed: {response.status_code}")
+            response = await client.get(f"{ES_HOST}", timeout=2.0)
+            if response.status_code != 200:
                 es_status = "오류"
-    except Exception as e:
-        logger.warning(f"ES system_logs active check connection failed: {e!r}")
+    except Exception:
         es_status = "오류"
 
     active_pb_count = len(active_users)
     active_employees = active_pb_count if active_pb_count > 0 else None
+
+    # 3. AI To-Do 승인률 집계 (오늘 / 이번 달)
+    from app.models.ai_todo import AiTodo
+    
+    kst_now = datetime.now(timezone.utc) + timedelta(hours=9)
+    today_start = datetime(kst_now.year, kst_now.month, kst_now.day)
+    today_end = today_start + timedelta(days=1)
+    
+    month_start = datetime(kst_now.year, kst_now.month, 1)
+    if kst_now.month == 12:
+        month_end = datetime(kst_now.year + 1, 1, 1)
+    else:
+        month_end = datetime(kst_now.year, kst_now.month + 1, 1)
+
+    todo_approved_today = db.query(AiTodo).filter(
+        AiTodo.execution_date >= today_start,
+        AiTodo.execution_date < today_end,
+        AiTodo.is_checked == True
+    ).count()
+
+    todo_approved_today_total = db.query(AiTodo).filter(
+        AiTodo.execution_date >= today_start,
+        AiTodo.execution_date < today_end
+    ).count()
+
+    todo_approved_month = db.query(AiTodo).filter(
+        AiTodo.execution_date >= month_start,
+        AiTodo.execution_date < month_end,
+        AiTodo.is_checked == True
+    ).count()
+
+    todo_approved_month_total = db.query(AiTodo).filter(
+        AiTodo.execution_date >= month_start,
+        AiTodo.execution_date < month_end
+    ).count()
 
     return EmployeeDashboardResponse(
         active_count=active_employees,
@@ -381,11 +394,11 @@ async def get_employee_dashboard(
         total_employees=total_pb,
         total_employees_change=None,
         active_employees=active_employees,
-        active_employees_sub=None,
-        todo_approved_month=None,
-        todo_approved_month_total=None,
-        todo_approved_today=None,
-        todo_approved_today_total=None,
+        active_employees_sub=f"실시간 활성률 {int((active_pb_count / total_pb) * 100)}% (10분 기준)" if total_pb > 0 else "0% (10분 기준)",
+        todo_approved_month=todo_approved_month,
+        todo_approved_month_total=todo_approved_month_total,
+        todo_approved_today=todo_approved_today,
+        todo_approved_today_total=todo_approved_today_total,
         es_status=es_status,
     )
     
@@ -509,40 +522,11 @@ async def get_employee_usage(period: Optional[str], db: Session) -> EmployeeUsag
     """직원 현황 + 실시간 최근 활동 로그 (employee_logs 기반)"""
     import asyncio
 
-    active_users = set()
+    from app.utils.online_tracker import get_active_users
+    active_users = get_active_users()
+    
     recent_activities = []
     es_status = "정상"
-
-    async def fetch_active_users(client):
-        try:
-            response = await client.post(
-                f"{ES_HOST}/system_logs/_search",
-                json={
-                    "query": {
-                        "bool": {
-                            "must": [
-                                {"range": {"timestamp": {"gte": "now-10m"}}}
-                            ],
-                            "must_not": [
-                                {"term": {"user_id": "system"}},
-                                {"term": {"user_id": "admin1"}}
-                            ]
-                        }
-                    },
-                    "_source": ["user_id"],
-                    "size": 1000
-                }
-            )
-            if response.status_code == 200:
-                hits = response.json().get("hits", {}).get("hits", [])
-                for hit in hits:
-                    uid = hit.get("_source", {}).get("user_id")
-                    if uid:
-                        active_users.add(uid)
-            else:
-                logger.warning(f"ES active check for usage list failed: {response.status_code}")
-        except Exception as e:
-            logger.warning(f"ES active check for usage list failed: {e!r}")
 
     async def fetch_recent_activities(client):
         nonlocal es_status
@@ -580,15 +564,12 @@ async def get_employee_usage(period: Optional[str], db: Session) -> EmployeeUsag
             logger.warning(f"ES employee_logs 연결 실패: {e!r}")
             es_status = "오류"
 
-    # ES 데이터 병렬 조회
+    # ES 데이터 조회 (최근 활동 로그 조회)
     try:
         async with httpx.AsyncClient(timeout=3.0, headers={"bypass-tunnel-reminder": "true"}, http2=False) as client:
-            await asyncio.gather(
-                fetch_active_users(client),
-                fetch_recent_activities(client)
-            )
+            await fetch_recent_activities(client)
     except Exception as e:
-        logger.warning(f"ES parallel query failed: {e!r}")
+        logger.warning(f"ES query failed: {e!r}")
         es_status = "오류"
 
     # 2. 직원 현황은 DB의 account 테이블 중 role이 'user'인 애들을 PbUser와 조인하여 이름(name) 순으로 정렬
