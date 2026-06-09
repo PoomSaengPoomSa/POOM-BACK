@@ -24,9 +24,20 @@ def get_ai_todos(
 ) -> AiTodoListResponse:
     """AI 투두 목록 조회"""
     target_uid = u_id or current_user.id
+    
+    # 캘린더 일정이 존재하면 해당 AI To-Do를 중복 노출에서 제외합니다.
+    active_schedules = db.query(Schedule).filter(Schedule.u_id == target_uid).all()
+    sched_map = set()
+    for s in active_schedules:
+        if s.c_id and s.execution_date:
+            sched_map.add((s.c_id, s.execution_date.date()))
+            
     todos = db.query(AiTodo).filter(AiTodo.u_id == target_uid).all()
     todo_items = []
     for t in todos:
+        if not t.is_checked and t.c_id and t.execution_date:
+            if (t.c_id, t.execution_date.date()) in sched_map:
+                continue
         todo_items.append(
             AiTodoItem(
                 at_id=t.at_id,
