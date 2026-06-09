@@ -11,7 +11,7 @@ from app.services.trend import get_trend_dashboard
 async def main():
     print("--- 트렌드 대시보드 API 쿼리 및 결과 검증 시작 ---")
     db = SessionLocal()
-    mock_user = type("MockAccount", (object,), {"id": "user1", "role": "user"})()
+    mock_user = type("MockAccount", (object,), {"id": "pb_b1_1", "role": "user"})()
     
     try:
         result = await get_trend_dashboard(mock_user, db)
