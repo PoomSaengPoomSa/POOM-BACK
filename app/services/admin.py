@@ -225,27 +225,70 @@ async def get_system_dashboard(
     prev_err = error_chart[22].value if len(error_chart) > 22 else 0.0
     error_rate_change = round(current_err - prev_err, 2)
 
+    from sqlalchemy import text
+
+    # Default metrics
+    br_acc, br_f1, br_rec, br_prec = "83.33%", "0.45", "0.45", "0.45"
+    gd_acc, gd_f1, gd_rec, gd_prec = "56.06%", "0.54", "0.55", "0.55"
+    re_mse, re_mae, re_rmse, re_r2 = "0.0064", "0.0594", "0.0450", "62.21%"
+
+    try:
+        base_rate_row = db.execute(
+            text("SELECT accuracy, f1_score, recall, `precision` FROM baserate_performance ORDER BY evaluated_at DESC LIMIT 1")
+        ).mappings().first()
+        if base_rate_row:
+            br_acc = f"{float(base_rate_row['accuracy']) * 100:.2f}%"
+            br_f1 = f"{float(base_rate_row['f1_score']):.4f}"
+            br_rec = f"{float(base_rate_row['recall']):.4f}"
+            br_prec = f"{float(base_rate_row['precision']):.4f}"
+    except Exception as e:
+        logger.warning(f"Failed to fetch baserate_performance: {e}")
+
+    try:
+        gold_row = db.execute(
+            text("SELECT accuracy, f1_score, recall, `precision` FROM gold_performance ORDER BY evaluated_at DESC LIMIT 1")
+        ).mappings().first()
+        if gold_row:
+            gd_acc = f"{float(gold_row['accuracy']) * 100:.2f}%"
+            gd_f1 = f"{float(gold_row['f1_score']):.4f}"
+            gd_rec = f"{float(gold_row['recall']):.4f}"
+            gd_prec = f"{float(gold_row['precision']):.4f}"
+    except Exception as e:
+        logger.warning(f"Failed to fetch gold_performance: {e}")
+
+    try:
+        realestate_row = db.execute(
+            text("SELECT mse, mae, rmse, r2_score FROM realestate_performance ORDER BY evaluated_at DESC LIMIT 1")
+        ).mappings().first()
+        if realestate_row:
+            re_mse = f"{float(realestate_row['mse']):.4f}"
+            re_mae = f"{float(realestate_row['mae']):.4f}"
+            re_rmse = f"{float(realestate_row['rmse']):.4f}"
+            re_r2 = f"{float(realestate_row['r2_score']) * 100:.2f}%"
+    except Exception as e:
+        logger.warning(f"Failed to fetch realestate_performance: {e}")
+
     ml_metrics = [
         MLPerformanceMetrics(
             name="기준 금리",
-            metric1_name="정확도", metric1_val="83.33%",
-            metric2_name="F1 score", metric2_val="0.45",
-            metric3_name="recall", metric3_val="0.45",
-            metric4_name="precision", metric4_val="0.45"
+            metric1_name="정확도", metric1_val=br_acc,
+            metric2_name="F1 score", metric2_val=br_f1,
+            metric3_name="recall", metric3_val=br_rec,
+            metric4_name="precision", metric4_val=br_prec
         ),
         MLPerformanceMetrics(
             name="금값 변화율",
-            metric1_name="정확도", metric1_val="56.06%",
-            metric2_name="F1 score", metric2_val="0.54",
-            metric3_name="recall", metric3_val="0.55",
-            metric4_name="precision", metric4_val="0.55"
+            metric1_name="정확도", metric1_val=gd_acc,
+            metric2_name="F1 score", metric2_val=gd_f1,
+            metric3_name="recall", metric3_val=gd_rec,
+            metric4_name="precision", metric4_val=gd_prec
         ),
         MLPerformanceMetrics(
             name="부동산지수",
-            metric1_name="MSE", metric1_val="0.0064",
-            metric2_name="MAE", metric2_val="0.0594%",
-            metric3_name="MAPE", metric3_val="0.0450%",
-            metric4_name="adj-R squared", metric4_val="62.21%"
+            metric1_name="MSE", metric1_val=re_mse,
+            metric2_name="MAE", metric2_val=re_mae,
+            metric3_name="RMSE", metric3_val=re_rmse,
+            metric4_name="R-squared", metric4_val=re_r2
         )
     ]
 
