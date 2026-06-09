@@ -128,6 +128,17 @@ settings = get_settings()
 ES_HOST = settings.ES_HOST
 LOGSTASH_HOST = settings.LOGSTASH_HOST
 
+# ── CORS ───────────────────────────────────────────────────────────────────────
+origins = settings.cors_origins_list
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # ── 로그 전송 유틸 ─────────────────────────────────────────────────────────────
 async def send_log_async(es_host: str, index: str, log_data: dict):
@@ -258,16 +269,7 @@ async def log_request_middleware(request, call_next):
     return response
 
 
-# ── CORS ───────────────────────────────────────────────────────────────────────
-origins = settings.cors_origins_list
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # ── 라우터 등록 ────────────────────────────────────────────────────────────────
 app.include_router(auth.router,         prefix="/api/v1/auth",      tags=["Auth"])
