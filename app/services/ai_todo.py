@@ -206,6 +206,10 @@ def run_ai_todo_agent_sync(u_id: str, target_date: str) -> dict:
         response.raise_for_status()
         logger.info(f"[Sync Task] POOM-AI API 성공 완료")
         return response.json()
+    except requests.exceptions.HTTPError as he:
+        detail_msg = he.response.text if he.response else str(he)
+        logger.error(f"[Sync Task] POOM-AI API 구동 중 HTTP 에러 발생: {detail_msg}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"AI agent execution failed: {detail_msg}")
     except Exception as e:
         logger.error(f"[Sync Task] POOM-AI API 구동 중 예외 발생: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"AI agent execution failed: {str(e)}")
