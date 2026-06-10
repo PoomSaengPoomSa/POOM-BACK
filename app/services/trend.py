@@ -234,7 +234,7 @@ async def get_trend_dashboard(current_user, db: Session) -> TrendDashboardRespon
     # B. 부동산 데이터 쿼리
     re_yesterday, re_today = None, None
     try:
-        re_hist_query = text("SELECT house_price_idx FROM ml_realestate_preprocessed ORDER BY date_ym DESC LIMIT 2")
+        re_hist_query = text("SELECT house_price_idx FROM ml_realestate_raw WHERE house_price_idx IS NOT NULL ORDER BY loaded_date DESC LIMIT 2")
         re_res = db.execute(re_hist_query).fetchall()
         if len(re_res) >= 2:
             re_today = float(re_res[0][0])
@@ -649,13 +649,13 @@ async def get_indicator_latest(
     
     if type == "real_estate":
         try:
-            re_hist_query = text("SELECT house_price_idx, date_ym FROM ml_realestate_preprocessed ORDER BY date_ym DESC LIMIT 2")
+            re_hist_query = text("SELECT house_price_idx, loaded_date FROM ml_realestate_raw WHERE house_price_idx IS NOT NULL ORDER BY loaded_date DESC LIMIT 2")
             re_res = db.execute(re_hist_query).fetchall()
             if len(re_res) >= 2:
                 today_val = float(re_res[0][0])
                 yesterday_val = float(re_res[1][0])
-                ym_today = str(re_res[0][1])
-                ym_yesterday = str(re_res[1][1])
+                ym_today = re_res[0][1].strftime("%Y%m")
+                ym_yesterday = re_res[1][1].strftime("%Y%m")
                 today_rec_at = f"{ym_today[:4]}-{ym_today[4:6]}-01T00:00:00Z"
                 yesterday_rec_at = f"{ym_yesterday[:4]}-{ym_yesterday[4:6]}-01T00:00:00Z"
             else:
@@ -831,7 +831,7 @@ async def get_indicator_history(
     if type == "real_estate":
         from sqlalchemy import text
         try:
-            re_hist_query = text("SELECT date_ym, house_price_idx FROM ml_realestate_preprocessed ORDER BY date_ym DESC LIMIT 12")
+            re_hist_query = text("SELECT loaded_date, house_price_idx FROM ml_realestate_raw WHERE house_price_idx IS NOT NULL ORDER BY loaded_date DESC LIMIT 12")
             re_res = db.execute(re_hist_query).fetchall()
             
             if not re_res:
@@ -841,8 +841,7 @@ async def get_indicator_history(
             
             series = []
             for row in re_res_sorted:
-                ym_str = str(row[0])
-                formatted_date = f"{ym_str[:4]}-{ym_str[4:6]}-01"
+                formatted_date = row[0].strftime("%Y-%m-01")
                 series.append({
                     "date": formatted_date,
                     "value": float(row[1])
@@ -955,14 +954,14 @@ async def get_indicator_prediction(
     
     if type == "real_estate":
         try:
-            re_ym_query = text("SELECT date_ym FROM ml_realestate_preprocessed ORDER BY date_ym DESC LIMIT 1")
+            re_ym_query = text("SELECT loaded_date FROM ml_realestate_raw WHERE house_price_idx IS NOT NULL ORDER BY loaded_date DESC LIMIT 1")
             re_ym_res = db.execute(re_ym_query).fetchone()
             
             next_month_str = ""
             if re_ym_res:
-                ym_str = str(re_ym_res[0])
-                year = int(ym_str[:4])
-                month = int(ym_str[4:6])
+                dt_val = re_ym_res[0]
+                year = dt_val.year
+                month = dt_val.month
                 if month == 12:
                     next_year = year + 1
                     next_month = 1
@@ -1189,7 +1188,7 @@ async def get_report_status(
             "status": "done",
             "progress": 100,
             "failedReason": None,
-            "completedAt": report.created_at.strftime("%Y-%m-%dT%H:%M:%SZ")
+            "completedAt": report.created_at.strftime("%Y-%m-%dT%H:%M:%S+09:00")
         }
     else:
         return {
@@ -1296,7 +1295,7 @@ async def get_latest_report(
     to_date = latest.recorded_at.strftime("%Y-%m-%d") if latest else "2026-05-25"
     
     # Safely handle potential None created_at values
-    gen_time_str = report.created_at.strftime("%Y-%m-%dT%H:%M:%SZ") if report.created_at else datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    gen_time_str = report.created_at.strftime("%Y-%m-%dT%H:%M:%S+09:00") if report.created_at else (datetime.datetime.utcnow() + datetime.timedelta(hours=9)).strftime("%Y-%m-%dT%H:%M:%S+09:00")
     
     return {
         "reportId": str(report.report_id),

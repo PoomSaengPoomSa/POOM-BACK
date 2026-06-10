@@ -175,7 +175,7 @@ def ensure_today_notifications(current_user, db: Session):
 def get_notifications(
     current_user, tab: str, db: Session
 ) -> List[NotificationResponse]:
-    """유저 ID(u_id)에 따른 알림 리스트 조회 및 포맷팅 (방문 브리핑은 30분 전부터 노출)"""
+    """유저 ID(u_id)에 따른 알림 리스트 조회 및 포맷팅 (방문 브리핑은 30분 전부터 노출, 일반 알림은 고객/날짜별 묶음 처리)"""
     ensure_today_notifications(current_user, db)
     
     today_date = get_kst_today()
@@ -186,14 +186,28 @@ def get_notifications(
     # 최신 알림 순 정렬
     notifs = query.order_by(Notification.created_time.desc()).all()
     
+    # 데이터베이스 중복 적재 건 제거 (동일 category, title, content인 경우 가장 최신 1건만 유지)
+    seen_db_notifs = set()
+    unique_notifs = []
+    for n in notifs:
+        content_val = n.content or ""
+        key = (n.category, n.title, content_val)
+        if key not in seen_db_notifs:
+            seen_db_notifs.add(key)
+            unique_notifs.append(n)
+    notifs = unique_notifs
+    
     # 정렬 기준 시간 계산 함수 (방문 예정 브리핑은 예약 시간 기준, 나머지는 생성 시간 기준)
-    def get_sort_key(item_tuple):
-        n_obj, _ = item_tuple
+    def get_sort_key(n_obj):
         if n_obj.category == "방문 예정 브리핑" and n_obj.schedule:
             return n_obj.schedule.execution_date
         return n_obj.created_time
 
-    paired = []
+    # 1차 필터링 및 묶을 것과 개별 표시할 것 분류
+    # 묶음 키: (c_id, created_date)
+    from collections import defaultdict
+    grouped_notifs = defaultdict(list)
+    standalone_notifs = []
     
     for n in notifs:
         created_date = n.created_time.date()
@@ -203,16 +217,29 @@ def get_notifications(
         if tab == "today" and not is_today:
             continue
             
-        # '방문 예정 브리핑'의 경우, 현재 시간이 예약 시간(execution_date) 30분 전부터 예약 시간(정각) 사이일 때만 알림 제공
-        if n.category == "방문 예정 브리핑" and n.schedule:
-            now = get_kst_now()
-            trigger_time = n.schedule.execution_date - datetime.timedelta(minutes=30)
-            if not (trigger_time <= now <= n.schedule.execution_date):
-                continue
-                
+        # '방문 예정 브리핑'의 경우, 스케줄이 존재하면 예약 시간 30분 전부터 노출을 시작합니다. (과거 알림도 목록에 유지)
+        if n.category == "방문 예정 브리핑":
+            if n.schedule:
+                now = get_kst_now()
+                trigger_time = n.schedule.execution_date - datetime.timedelta(minutes=30)
+                if now < trigger_time:
+                    continue
+            standalone_notifs.append(n)
+        elif n.c_id is not None:
+            # 일반 알림은 고객 ID와 날짜별로 그룹화
+            grouped_notifs[(n.c_id, created_date)].append(n)
+        else:
+            standalone_notifs.append(n)
+            
+    # 최종 반환할 응답 객체 리스트
+    final_responses = []
+    
+    # 1. 단독 노출 알림들 변환
+    for n in standalone_notifs:
+        created_date = n.created_time.date()
         days_diff = (today_date - created_date).days
+        is_today = (created_date == today_date)
         
-        # 프론트엔드가 요구하는 형식으로 매핑
         resp = NotificationResponse(
             id=n.n_id,
             type=n.category or "안부 연락",
@@ -227,45 +254,94 @@ def get_notifications(
             s_id=n.s_id,
             c_id=n.c_id,
             days_diff=days_diff,
+            tags=[{
+                "type": n.category or "안부 연락",
+                "category": map_category_color(n.category)
+            }]
         )
-        paired.append((n, resp))
+        final_responses.append((get_sort_key(n), resp))
+        
+    # 2. 그룹화된 알림들 변환
+    priority = {'이탈 위험': 0, '거액 거래 탐지': 1, '만기 알림': 2, '안부 연락': 3}
+    
+    for (c_id, created_date), n_list in grouped_notifs.items():
+        # 우선순위가 높은 카테고리가 맨 위로 오도록 정렬
+        n_list.sort(key=lambda x: priority.get(x.category, 99))
+        
+        primary_n = n_list[0]
+        days_diff = (today_date - created_date).days
+        is_today = (created_date == today_date)
+        
+        # 태그 목록 구성 (중복 제거)
+        tags = []
+        seen_categories = set()
+        for x in n_list:
+            cat = x.category or "안부 연락"
+            if cat not in seen_categories:
+                seen_categories.add(cat)
+                tags.append({
+                    "type": cat,
+                    "category": map_category_color(cat)
+                })
+                
+        # 카드 제목 구성
+        customer_name = primary_n.customer.name if primary_n.customer else primary_n.title.split("고객")[0].strip()
+        if len(tags) > 1:
+            cat_titles = [t["type"] for t in tags]
+            title_summary = " & ".join(cat_titles)
+            unified_title = f"{customer_name} 고객 안내 ({title_summary})"
+        else:
+            unified_title = primary_n.title
+            
+        # 본문 병합
+        merged_expanded = []
+        for x in n_list:
+            cat = x.category or "안부 연락"
+            if len(n_list) > 1:
+                merged_expanded.append(f"[{cat}] {x.title}")
+                if x.content:
+                    for line in x.content.split("\n"):
+                        stripped = line.strip()
+                        if stripped:
+                            merged_expanded.append(f"  • {stripped}")
+                merged_expanded.append("")  # 공백 라인 구분자
+            else:
+                # 1개만 있는 경우는 원본 형식 유지
+                if x.content:
+                    merged_expanded.extend([line.strip() for line in x.content.split("\n") if line.strip()])
+                    
+        # 다수 건 병합 시 마지막 빈 줄 제거
+        if len(n_list) > 1 and merged_expanded and merged_expanded[-1] == "":
+            merged_expanded.pop()
+            
+        resp = NotificationResponse(
+            id=primary_n.n_id,
+            type=primary_n.category or "안부 연락",
+            content=unified_title,
+            date=format_date(primary_n.created_time),
+            category=map_category_color(primary_n.category),
+            today=is_today,
+            isBriefing=False,
+            expandedContent=merged_expanded,
+            state_us=primary_n.state_us,
+            u_id=primary_n.u_id,
+            s_id=primary_n.s_id,
+            c_id=c_id,
+            days_diff=days_diff,
+            tags=tags
+        )
+        # 그룹의 정렬 기준 시간은 그룹 내 가장 최신 알림 시간으로 지정
+        max_time = max(x.created_time for x in n_list)
+        final_responses.append((max_time, resp))
         
     # 정렬 기준 시간에 따라 내림차순 정렬
-    paired.sort(key=get_sort_key, reverse=True)
-    return [resp for _, resp in paired]
+    final_responses.sort(key=lambda x: x[0], reverse=True)
+    return [resp for _, resp in final_responses]
 
 
 def get_today_count(current_user, db: Session) -> int:
-    """오늘 날짜의 알림 개수 조회 (방문 예정 브리핑은 30분 전부터 카운트 포함)"""
-    ensure_today_notifications(current_user, db)
-    
-    today_date = get_kst_today()
-    
-    # 쿼리에서 오늘 시작(00:00:00)부터 오늘 끝(23:59:59)까지 필터링
-    start_of_today = datetime.datetime.combine(today_date, datetime.time.min)
-    end_of_today = datetime.datetime.combine(today_date, datetime.time.max)
-    
-    notifs = (
-        db.query(Notification)
-        .filter(
-            Notification.u_id == current_user.id,
-            Notification.created_time >= start_of_today,
-            Notification.created_time <= end_of_today,
-        )
-        .all()
-    )
-    
-    count = 0
-    now = get_kst_now()
-    for n in notifs:
-        # '방문 예정 브리핑'의 경우, 현재 시간이 예약 시간(execution_date) 30분 전부터 예약 시간(정각) 사이일 때만 개수에 포함
-        if n.category == "방문 예정 브리핑" and n.schedule:
-            trigger_time = n.schedule.execution_date - datetime.timedelta(minutes=30)
-            if not (trigger_time <= now <= n.schedule.execution_date):
-                continue
-        count += 1
-        
-    return count
+    """오늘 날짜의 알림 개수 조회 (방문 예정 브리핑은 30분 전부터 카운트 포함, 그룹화 반영)"""
+    return len(get_notifications(current_user, "today", db))
 
 
 def get_customer_briefing(current_user, customer_id: int, db: Session) -> Optional[NotificationResponse]:

@@ -17,6 +17,7 @@ class NotificationResponse(BaseModel):
     s_id: Optional[int] = None
     c_id: Optional[int] = None
     days_diff: int
+    tags: Optional[List[dict]] = None
 
     model_config = ConfigDict(
         from_attributes=True,
