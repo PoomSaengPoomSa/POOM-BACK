@@ -35,7 +35,7 @@ jobs:
           proxy_host: ${{ secrets.BASTION_HOST }}
           proxy_username: ${{ secrets.SERVER_USER }}
           proxy_key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: GHCR_TOKEN,DB_USER,DB_PASSWORD,DB_HOST,DB_PORT,DB_NAME,JWT_SECRET_KEY,JWT_ALGORITHM,POOM_AI_URL,ES_HOST,LOGSTASH_HOST,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,AWS_DEFAULT_REGION,S3_BUCKET_NAME,CORS_ORIGINS
+          envs: GHCR_TOKEN,DB_USER,DB_PASSWORD,DB_HOST,DB_PORT,DB_NAME,JWT_SECRET_KEY,JWT_ALGORITHM,POOM_AI_URL,ES_HOST,LOGSTASH_HOST,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,AWS_DEFAULT_REGION,S3_BUCKET_NAME,CORS_ORIGINS,OPENAI_API_KEY
           script: |
             echo "$GHCR_TOKEN" | docker login ghcr.io -u poomsaengpoomsa --password-stdin
             docker pull ghcr.io/poomsaengpoomsa/poom-back:latest
@@ -60,6 +60,7 @@ jobs:
               -e AWS_DEFAULT_REGION="$AWS_DEFAULT_REGION" \
               -e S3_BUCKET_NAME="$S3_BUCKET_NAME" \
               -e CORS_ORIGINS="$CORS_ORIGINS" \
+              -e OPENAI_API_KEY="$OPENAI_API_KEY" \
               ghcr.io/poomsaengpoomsa/poom-back:latest
         env:
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
@@ -78,3 +79,4 @@ jobs:
           AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
           S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
           CORS_ORIGINS: ${{ secrets.CORS_ORIGINS }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
