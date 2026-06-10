@@ -12,10 +12,6 @@ def apply_indexes():
     
     indexes = [
         ("economic_indicator_history", "idx_eih_type_recorded", "economic_indicator_history (type, recorded_at DESC)"),
-        ("economic_indicator_prediction", "idx_eip_type_date", "economic_indicator_prediction (type, predicted_date ASC)"),
-        ("trend_news", "idx_tn_cat_pub", "trend_news (category, published_at DESC)"),
-        ("trend_news", "idx_tn_pub", "trend_news (published_at DESC)"),
-        ("trend_news", "idx_tn_url", "trend_news (origin_url)"),
         ("pb_schedule", "idx_sched_u_cat_exec", "pb_schedule (u_id, category, execution_date DESC)"),
         ("pb_schedule", "idx_sched_c_cat_exec", "pb_schedule (c_id, category, execution_date DESC)"),
         ("in_charge", "idx_ic_cid", "in_charge (c_id)"),

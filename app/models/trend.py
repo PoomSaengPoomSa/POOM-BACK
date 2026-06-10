@@ -2,25 +2,6 @@ from sqlalchemy import Column, Integer, String, DateTime, Text, Numeric, Date, I
 from app.database import Base
 import datetime
 
-class TrendNews(Base):
-    """뉴스 아카이브 테이블 모델"""
-    __tablename__ = "trend_news"
-
-    news_id = Column(Integer, primary_key=True, autoincrement=True)
-    title = Column(String(255), nullable=False)
-    category = Column(String(50), nullable=False)  # 'economy', 'politics', 'it' 등
-    body = Column(Text, nullable=True)
-    published_at = Column(DateTime, default=datetime.datetime.utcnow)
-    source = Column(String(100), nullable=False)
-    origin_url = Column(String(255), nullable=True)
-    tags = Column(String(255), nullable=True)  # 쉼표 구분 태그 목록
-
-    __table_args__ = (
-        Index('idx_tn_cat_pub', 'category', published_at.desc()),
-        Index('idx_tn_pub', published_at.desc()),
-        Index('idx_tn_url', 'origin_url'),
-    )
-
 class EconomicIndicatorHistory(Base):
     """경제지표 과거 이력 테이블 모델"""
     __tablename__ = "economic_indicator_history"
@@ -33,21 +14,6 @@ class EconomicIndicatorHistory(Base):
 
     __table_args__ = (
         Index('idx_eih_type_recorded', 'type', recorded_at.desc()),
-    )
-
-class EconomicIndicatorPrediction(Base):
-    """경제지표 ML 예측 테이블 모델"""
-    __tablename__ = "economic_indicator_prediction"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    type = Column(String(50), nullable=False)  # 'gold', 'real_estate', 'base_rate' 등
-    predicted_value = Column(Numeric(15, 4), nullable=False)
-    confidence_lower = Column(Numeric(15, 4), nullable=True)
-    confidence_upper = Column(Numeric(15, 4), nullable=True)
-    predicted_date = Column(Date, nullable=False)
-
-    __table_args__ = (
-        Index('idx_eip_type_date', 'type', predicted_date.asc()),
     )
 
 class EconomicIndicatorContribution(Base):
