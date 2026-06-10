@@ -845,9 +845,9 @@ def save_simulator_info(
     current_user,
     db: Session,
 ) -> MessageResponse:
-    """시뮬레이터 정보 및 추가 입력사항 저장 (txt 파일 생성)"""
+    """시뮬레이터 정보 및 추가 입력사항 저장 (S3)"""
     from app.schemas.customer import MessageResponse
-    import os
+    from app.utils.s3_storage import s3_write_text, s3_delete
     
     customer = db.query(Customer).filter(Customer.c_id == customer_id).first()
     if not customer:
@@ -881,27 +881,19 @@ def save_simulator_info(
         f"{additional_notes}\n"
     )
     
-    # Ensure directory exists and write markdown file
-    ai_data_dir = os.path.join(POOM_AI_DIR, "agent", "simulator", "data", "history")
-    os.makedirs(ai_data_dir, exist_ok=True)
-    
-    md_path = os.path.join(ai_data_dir, f"customer_{customer_id}.md")
+    # S3에 md 파일 저장
+    md_key = f"simulator/history/customer_{customer_id}.md"
     try:
-        with open(md_path, "w", encoding="utf-8") as f:
-            f.write(md_content)
+        s3_write_text(md_key, md_content)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"임시 md 파일 저장 실패: {str(e)}"
+            detail=f"S3 md 파일 저장 실패: {str(e)}"
         )
         
-    # Reset conversation history by deleting the JSON history file
-    history_path = os.path.join(ai_data_dir, f"customer_{customer_id}_history.json")
-    if os.path.exists(history_path):
-        try:
-            os.remove(history_path)
-        except Exception:
-            pass
+    # 히스토리 초기화
+    history_key = f"simulator/history/customer_{customer_id}_history.json"
+    s3_delete(history_key)
             
     return MessageResponse(message="시뮬레이터 정보 및 추가 입력사항이 정상적으로 저장되었습니다.")
 
@@ -911,10 +903,9 @@ def get_simulator_info(
     current_user,
     db: Session,
 ) -> SimulatorInfoResponse:
-    """시뮬레이터 정보 조회 및 추가 입력사항 파싱"""
+    """시뮬레이터 정보 조회 및 추가 입력사항 파싱 (S3)"""
     from app.schemas.customer import SimulatorInfoResponse
-    import os
-    import json
+    from app.utils.s3_storage import s3_read_text, s3_read_json
     
     customer = db.query(Customer).filter(Customer.c_id == customer_id).first()
     if not customer:
@@ -923,48 +914,29 @@ def get_simulator_info(
             detail="고객을 찾을 수 없습니다.",
         )
         
-    ai_data_dir = os.path.join(POOM_AI_DIR, "agent", "simulator", "data")
-    
-    md_path = os.path.join(ai_data_dir, f"customer_{customer_id}.md")
-    txt_path = os.path.join(ai_data_dir, f"customer_{customer_id}.txt")
-    
     exists = False
     additional_notes = ""
-    
-    if os.path.exists(md_path):
+
+    # md 우선, 없으면 txt 조회
+    content = s3_read_text(f"simulator/history/customer_{customer_id}.md")
+    if content:
         exists = True
-        try:
-            with open(md_path, "r", encoding="utf-8") as f:
-                content = f.read()
-            header_str = "## 추가 입력사항 (PB 추가 메모)\n"
-            if header_str in content:
-                additional_notes = content.split(header_str)[1].strip()
-        except Exception:
-            pass
-    elif os.path.exists(txt_path):
-        exists = True
-        try:
-            with open(txt_path, "r", encoding="utf-8") as f:
-                content = f.read()
+        header_str = "## 추가 입력사항 (PB 추가 메모)\n"
+        if header_str in content:
+            additional_notes = content.split(header_str)[1].strip()
+    else:
+        content = s3_read_text(f"simulator/history/customer_{customer_id}.txt")
+        if content:
+            exists = True
             header_str = "3. 추가 입력사항 (PB 추가 메모)\n"
             if header_str in content:
                 additional_notes = content.split(header_str)[1].strip()
-        except Exception:
-            pass
-            
-    # Load conversation history if exists
-    history = []
-    history_path = os.path.join(ai_data_dir, f"customer_{customer_id}_history.json")
-    if os.path.exists(history_path):
-        try:
-            with open(history_path, "r", encoding="utf-8") as f:
-                history = json.load(f)
-        except Exception:
-            pass
+
+    # 대화 히스토리 조회
+    history = s3_read_json(f"simulator/history/customer_{customer_id}_history.json") or []
             
     return SimulatorInfoResponse(
         exists=exists,
         additional_notes=additional_notes,
         history=history
     )
-
