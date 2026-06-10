@@ -5,7 +5,6 @@ import logging
 from datetime import datetime, timedelta, date
 from app.models.trend import (
     EconomicIndicatorHistory,
-    EconomicIndicatorPrediction,
     EconomicIndicatorContribution,
     TrendLlmReport,
 )
@@ -991,29 +990,69 @@ async def get_indicator_prediction(
         except Exception as e:
             logger.warning(f"Failed to fetch realestate predictions in get_indicator_prediction: {e}")
             raise HTTPException(status_code=404, detail="해당 지표 데이터 없음")
-    else:
-        preds = db.query(EconomicIndicatorPrediction).filter(
-            EconomicIndicatorPrediction.type == type
-        ).order_by(EconomicIndicatorPrediction.predicted_date.asc()).limit(h_val).all()
-        
-        predictions_list = [
-            {
-                "date": p.predicted_date.strftime("%Y-%m-%d"),
-                "value": float(p.predicted_value),
-                "lower": float(p.confidence_lower) if p.confidence_lower is not None else None,
-                "upper": float(p.confidence_upper) if p.confidence_upper is not None else None
-            }
-            for p in preds
-        ]
-        
+    elif type == "gold":
         try:
-            pred_tbl = "gold_predictions" if type == "gold" else "baserate_predictions"
-            run_id_query = text(f"SELECT run_id FROM {pred_tbl} ORDER BY created_at DESC LIMIT 1")
-            run_id_res = db.execute(run_id_query).fetchone()
-            if run_id_res:
-                db_run_id = run_id_res[0]
-        except Exception:
-            pass
+            gold_date_query = text("SELECT loaded_date FROM ml_gold_preprocessed ORDER BY loaded_date DESC LIMIT 1")
+            gold_date_res = db.execute(gold_date_query).fetchone()
+
+            if gold_date_res:
+                latest_date = datetime.datetime.strptime(str(gold_date_res[0])[:10], "%Y-%m-%d")
+                next_day_str = (latest_date + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+            else:
+                next_day_str = (datetime.datetime.utcnow() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+
+            gold_pred_query = text("SELECT run_id, prob_rise, prob_fall FROM gold_predictions ORDER BY created_at DESC LIMIT 1")
+            gold_pred_res = db.execute(gold_pred_query).fetchone()
+
+            if gold_pred_res:
+                db_run_id = gold_pred_res[0]
+                predictions_list = [
+                    {
+                        "date": next_day_str,
+                        "value": float(gold_pred_res[1]),
+                        "lower": None,
+                        "upper": None
+                    }
+                ]
+            else:
+                raise HTTPException(status_code=404, detail="해당 지표 데이터 없음")
+        except Exception as e:
+            logger.warning(f"Failed to fetch gold predictions in get_indicator_prediction: {e}")
+            raise HTTPException(status_code=404, detail="해당 지표 데이터 없음")
+    else:  # base_rate
+        try:
+            br_date_query = text("SELECT date_ym FROM ml_baserate_preprocessed ORDER BY date_ym DESC LIMIT 1")
+            br_date_res = db.execute(br_date_query).fetchone()
+
+            if br_date_res:
+                date_ym = str(br_date_res[0])
+                year, month = int(date_ym[:4]), int(date_ym[4:])
+                if month == 12:
+                    next_year, next_month = year + 1, 1
+                else:
+                    next_year, next_month = year, month + 1
+                next_month_str = f"{next_year}-{next_month:02d}-01"
+            else:
+                next_month_str = (datetime.datetime.utcnow() + datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+
+            br_pred_query = text("SELECT run_id, prob_hike, prob_freeze, prob_cut FROM baserate_predictions ORDER BY created_at DESC LIMIT 1")
+            br_pred_res = db.execute(br_pred_query).fetchone()
+
+            if br_pred_res:
+                db_run_id = br_pred_res[0]
+                predictions_list = [
+                    {
+                        "date": next_month_str,
+                        "value": float(br_pred_res[1]),
+                        "lower": None,
+                        "upper": None
+                    }
+                ]
+            else:
+                raise HTTPException(status_code=404, detail="해당 지표 데이터 없음")
+        except Exception as e:
+            logger.warning(f"Failed to fetch base_rate predictions in get_indicator_prediction: {e}")
+            raise HTTPException(status_code=404, detail="해당 지표 데이터 없음")
         
     mlflow_map = {
         "gold": {

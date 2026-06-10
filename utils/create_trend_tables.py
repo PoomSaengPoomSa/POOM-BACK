@@ -4,9 +4,7 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 from app.database import engine, SessionLocal, Base
 from app.models.trend import (
-    TrendNews,
     EconomicIndicatorHistory,
-    EconomicIndicatorPrediction,
     EconomicIndicatorContribution,
     TrendLlmReport,
 )
@@ -22,117 +20,13 @@ def seed_data():
         # 다른 테이블은 일절 건드리지 않고 오직 5개의 트렌드 관련 테이블만 청소하여 재설정합니다.
         print("이전 트렌드 & 경제지표 세팅 데이터 초기화 중...")
         db.query(EconomicIndicatorContribution).delete()
-        db.query(EconomicIndicatorPrediction).delete()
         db.query(EconomicIndicatorHistory).delete()
         db.query(TrendLlmReport).delete()
-        db.query(TrendNews).delete()
         db.commit()
 
         print("초기 고품질 트렌드 & 경제지표 데이터 적재(Seeding)를 시작합니다...")
 
-        # 2. Seed News Data
-        news_items = [
-            # 경제 뉴스 (economy)
-            TrendNews(
-                title="코스피 2,700 돌파 — 사상 최고치 3일 연속 경신. 'Sell in May' 격언 유효 여부 주목",
-                category="economy",
-                body="코스피 지수가 외국인과 기관의 강력한 동반 매수세에 힘입어 종가 기준 2,700선을 돌파했습니다. 3일 연속 최고치 경신으로, 미국 기술주 호조와 국내 반도체 기업들의 턴어라운드 전망이 견인했습니다. 일부 전문가들은 5월 하락장 격언인 'Sell in May'를 우려하고 있으나, 펀더멘털 개선세가 뚜렷하여 추가 상승 여력이 충분하다는 분석이 지배적입니다.",
-                published_at=datetime.datetime(2026, 5, 24, 9, 30),
-                source="연합인포맥스",
-                origin_url="https://news.einfomax.co.kr/news/123",
-                tags="코스피,주식시장,금융위원회",
-            ),
-            TrendNews(
-                title="삼성전자 어닝 서프라이즈 — 1분기 영업이익 5.72조 원(+756%), 주가 장중 신고가 경신",
-                category="economy",
-                body="삼성전자가 1분기 잠정 실적 발표를 통해 매출 71조 원, 영업이익 5.72조 원을 기록했다고 공시했습니다. 이는 시장 전망치를 30% 이상 초과한 수치로, 메모리 반도체 가격 상승과 HBM3E 납품 본격화로 인한 DS 부문 적자 폭 축소가 주요인입니다. 발표 직후 주가는 장중 5% 급등하며 역대 신고가를 돌파했습니다.",
-                published_at=datetime.datetime(2026, 5, 23, 10, 15),
-                source="매일경제",
-                origin_url="https://mk.co.kr/news/456",
-                tags="삼성전자,실적발표,반도체",
-            ),
-            TrendNews(
-                title="카카오, 1분기 영업이익 2,114억 원 달성... 전년 대비 66% 성장",
-                category="economy",
-                body="카카오가 올해 1분기 연결 기준 매출 1조 9,870억 원, 영업이익 2,114억 원을 기록했다고 발표했습니다. 플랫폼 부문의 톡비즈 광고 매출 확대와 더불어 콘텐츠 부문의 뮤직, 미디어 부문 글로벌 성장이 호실적을 견인했습니다. 특히 인건비 및 마케팅비 효율화 등 비용 제어가 유효했다는 평가를 받습니다.",
-                published_at=datetime.datetime(2026, 5, 22, 14, 0),
-                source="한국경제",
-                origin_url="https://hankyung.com/news/789",
-                tags="카카오,어닝서프라이즈,빅테크",
-            ),
-            TrendNews(
-                title="HMM 예인선 도착 완료... 지체된 물류 수송 오늘 오전 중 전격 재개 예정",
-                category="economy",
-                body="HMM의 초대형 컨테이너선이 엔진 문제로 일시 정박했던 해역에 긴급 예인 보트와 정비팀이 도착했습니다. 선사 측은 오늘 오전 중 간단한 부품 교체와 정밀 검사를 마치고 지체된 물류 수송 업무를 전격 재개할 예정이라고 밝혔습니다. 물류 대란 우려가 조기에 해소되면서 해운 업계도 안도하는 분위기입니다.",
-                published_at=datetime.datetime(2026, 5, 21, 8, 45),
-                source="조선일보",
-                origin_url="https://chosun.com/news/101",
-                tags="HMM,물류,해운동향",
-            ),
-
-            # 정치 뉴스 (politics)
-            TrendNews(
-                title="부산 북구갑 3자 구도 확정 — 여야 격돌 속 무소속 한동훈 변수 등장",
-                category="politics",
-                body="다가오는 보궐선거 최대 격전지로 떠오른 부산 북구갑 선거구의 대진표가 3자 구도로 최종 확정되었습니다. 더불어민주당 하정우 후보와 국민의힘 공천 후보의 양강 구도에 무소속으로 출마를 강행한 한동훈 후보가 가세하면서 선거 판세가 안개정국으로 접어들었습니다. 세 후보는 일제히 지역 전통시장 방원을 시작으로 본격적인 득표전에 돌입했습니다.",
-                published_at=datetime.datetime(2026, 5, 24, 11, 0),
-                source="동아일보",
-                origin_url="https://donga.com/news/202",
-                tags="부산보궐선거,공천확정,정치지형",
-            ),
-            TrendNews(
-                title="한동훈 \"이번 대결은 민생 중심 대리전\" — 반이재명 구도 전면 내세워 유세",
-                category="politics",
-                body="무소속 한동훈 후보가 부산 북구 상가 사거리 유세에서 '이번 선거는 야당 대표의 방탄을 막고 오직 서민과 청년의 미래를 돕는 민생 대리전'이라고 외치며 집중 지지를 호소했습니다. 야당 대표와 민주당 후보를 겨냥한 반이재명 구도 프레임을 부각하는 한편, 자신이 여권 쇄신의 중심에 서겠다고 거듭 공언했습니다.",
-                published_at=datetime.datetime(2026, 5, 23, 16, 20),
-                source="중앙일보",
-                origin_url="https://joongang.co.kr/news/303",
-                tags="한동훈,보궐선거,정치현안",
-            ),
-            TrendNews(
-                title="국산 최초 전투기 KF-21 '보라매', 방위사업청 전투용 적합 판정 획득",
-                category="politics",
-                body="방위사업청은 국산 최초 초음속 전투기 KF-21(보라매)이 군의 최종 작전 요구 요건을 완벽히 만족하여 '전투용 적합 판정'을 최종 획득했다고 공식 발표했습니다. 이로써 양산 단계로 신속히 전환될 예정이며, 우리 영공을 수호하는 핵심 전력으로 자리 잡는 동시에 K-방산의 글로벌 방산 수출에도 큰 기폭제가 될 것으로 보입니다.",
-                published_at=datetime.datetime(2026, 5, 22, 9, 0),
-                source="KBS 뉴스",
-                origin_url="https://news.kbs.co.kr/news/505",
-                tags="KF-21,방위사업청,방산수출",
-            ),
-
-            # IT/과학 뉴스 (it)
-            TrendNews(
-                title="스탠퍼드 AI 인덱스 2026 — 생성형 AI, 단순 기술 넘어서 '국가 인프라'로 전면 재편",
-                category="it",
-                body="스탠퍼드 대학교 인간중심AI연구소(HAI)가 발표한 'AI 인덱스 2026' 보고서에 따르면 생성형 AI와 AI 에이전트 기술이 단순 비즈니스 솔루션을 뛰어넘어 전 세계 국가 및 산업의 지배 인프라로 안착하고 있습니다. 보고서는 각국 정부가 자체 주권 AI(Sovereign AI) 확보를 위해 반도체 장비 및 인프라 구축 경쟁에 본격적으로 가세하고 있다고 진단했습니다.",
-                published_at=datetime.datetime(2026, 5, 24, 8, 0),
-                source="테크엠",
-                origin_url="https://techm.kr/news/404",
-                tags="스탠퍼드,생성형AI,인프라경쟁",
-            ),
-            TrendNews(
-                title="오픈AI, 마이크로소프트(MS)와의 전용 독점 파트너십 종료 선언... 멀티클라우드 확대",
-                category="it",
-                body="오픈AI가 마이크로소프트(MS)와 체결해 온 애저(Azure) 기반 전용 클라우드 인프라 독점 파트너십을 완화하고, 아마존(AWS) 및 구글 클라우드와의 대대적인 컴퓨팅 제휴를 체결했다고 발표했습니다. 오픈AI 앤디 재시 임시 협의회원은 안정적인 연산 파워 수급과 AI 트래픽 분산을 위해 멀티클라우드 체제로 가기 위한 전략적 결정이라고 덧붙였습니다.",
-                published_at=datetime.datetime(2026, 5, 23, 13, 10),
-                source="블로터",
-                origin_url="https://bloter.net/news/506",
-                tags="오픈AI,MS,멀티클라우드",
-            ),
-            TrendNews(
-                title="카카오, 고도화된 '에이전틱 AI' 신모델 전격 공개 — 톡 채널 내 탐색부터 결제까지 일괄 수행",
-                category="it",
-                body="카카오가 자사 카카오톡 환경 내에 특화 탑재되는 에이전틱 AI(Agentic AI) 서비스를 발표했습니다. 이 AI 비서는 사용자의 질문과 요구 사항에 반응하여 카카오톡 대화방에서 쇼핑 검색, 매장 예약, 최종 카드 결제 및 배송 추적까지의 모든 단계를 스스로 추론하고 연속 실행할 수 있는 고도의 자율 기능을 탑재해 큰 관심을 끌고 있습니다.",
-                published_at=datetime.datetime(2026, 5, 22, 17, 30),
-                source="디지털데일리",
-                origin_url="https://ddaily.co.kr/news/607",
-                tags="카카오톡,에이전틱AI,결제연동",
-            ),
-        ]
-        db.add_all(news_items)
-        db.commit()
-        print(f"총 {len(news_items)}개의 뉴스 기사 적재 성공!")
-
-        # 3. Seed Economic Indicators History (최근 30일 데이터)
+        # 2. Seed Economic Indicators History (최근 30일 데이터)
         today = datetime.datetime.utcnow().date()
         indicators_seed = []
 
@@ -192,56 +86,7 @@ def seed_data():
         db.commit()
         print(f"총 {len(indicators_seed)}개의 지표 이력 데이터 적재 성공!")
 
-        # 4. Seed Economic Indicators Predictions (미래 7일 예측)
-        predictions_seed = []
-
-        # Gold: 내일 85.0 및 향후 예측
-        gold_pred = [85.0, 85.5, 86.0, 86.2, 86.8, 87.5, 88.0]
-        for i, val in enumerate(gold_pred):
-            pred_date = today + datetime.timedelta(days=(i + 1))
-            predictions_seed.append(
-                EconomicIndicatorPrediction(
-                    type="gold",
-                    predicted_value=Decimal(str(val)),
-                    confidence_lower=Decimal(str(val - 1.5)),
-                    confidence_upper=Decimal(str(val + 1.5)),
-                    predicted_date=pred_date,
-                )
-            )
-
-        # Real Estate: 내일 100.2 및 향후 예측
-        re_pred = [100.2, 100.2, 100.1, 100.1, 100.0, 100.0, 99.9]
-        for i, val in enumerate(re_pred):
-            pred_date = today + datetime.timedelta(days=(i + 1))
-            predictions_seed.append(
-                EconomicIndicatorPrediction(
-                    type="real_estate",
-                    predicted_value=Decimal(str(val)),
-                    confidence_lower=Decimal(str(val - 0.2)),
-                    confidence_upper=Decimal(str(val + 0.2)),
-                    predicted_date=pred_date,
-                )
-            )
-
-        # Base Rate: 다음달 예측 2.0 및 향후 예측
-        br_pred = [2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0]
-        for i, val in enumerate(br_pred):
-            pred_date = today + datetime.timedelta(days=(i + 1))
-            predictions_seed.append(
-                EconomicIndicatorPrediction(
-                    type="base_rate",
-                    predicted_value=Decimal(str(val)),
-                    confidence_lower=Decimal(str(val - 0.25)),
-                    confidence_upper=Decimal(str(val + 0.25)),
-                    predicted_date=pred_date,
-                )
-            )
-
-        db.add_all(predictions_seed)
-        db.commit()
-        print(f"총 {len(predictions_seed)}개의 지표 예측 데이터 적재 성공!")
-
-        # 5. Seed Contributions (예측 기여도 가중치 - ML 원본 컬럼명 기반)
+        # 3. Seed Contributions (예측 기여도 가중치 - ML 원본 컬럼명 기반)
         contribs = [
             # Gold (ml_gold_raw 기반)
             EconomicIndicatorContribution(type="gold", variable="dxy_proxy", weight=Decimal("0.3200")),
@@ -265,7 +110,7 @@ def seed_data():
         db.commit()
         print(f"총 {len(contribs)}개의 지표 예측 기여도 가중치 적재 성공!")
 
-        # 6. Seed LLM Reports
+        # 5. Seed LLM Reports
         gold_report = (
             "### [금값 분석 리포트]\n\n"
             "향후 12개월간 금값은 3,890달러 수준으로 완만한 상승이 예상됩니다. 미 연준의 금리 인하 기조와 지정학적 불안이 주요 상승 요인입니다.\n\n"
