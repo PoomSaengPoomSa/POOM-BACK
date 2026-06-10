@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     FRED_API_KEY: str = ""
     REB_API_KEY: str = ""
 
-    openai_api_key: str | None = None
+    OPENAI_API_KEY: str | None = None
 
     langchain_tracing_v2: str | None = None
     langchain_endpoint: str | None = None

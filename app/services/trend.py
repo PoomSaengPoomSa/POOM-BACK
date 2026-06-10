@@ -47,7 +47,7 @@ async def fetch_ai_news_summary(category: str, articles: list) -> str:
     if not articles:
         return "- 최신 기사가 아직 수집되지 않았습니다."
         
-    api_key = settings.openai_api_key or os.getenv("OPENAI_API_KEY")
+    api_key = settings.OPENAI_API_KEY
     if not api_key:
         logger.warning("OPENAI_API_KEY is not configured. Returning fallback msg.")
         return "- OpenAI API 키가 설정되지 않아 실시간 AI 요약을 생성할 수 없습니다."
