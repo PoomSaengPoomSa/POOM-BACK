@@ -168,7 +168,7 @@ class CustomerListItem(BaseModel):
 
 # 발령 처리 요청
 class TransferRequest(BaseModel):
-    receiver_u_id: str
+    receiver_u_id: Optional[str] = None
     customer_ids: List[int]
     target_branch: int
 
