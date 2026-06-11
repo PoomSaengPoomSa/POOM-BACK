@@ -684,6 +684,24 @@ async def get_permissions(search: Optional[str], branch: Optional[str], db: Sess
         query = query.filter(Branch.name.like(f"%{clean_branch}%"))
 
     accounts = query.all()
+
+    # Sort accounts by branch ID (b_id) and position rank (지점장 -> 팀장 -> PB)
+    def get_sort_key(acc):
+        pb = acc.pb_user
+        if not pb:
+            return (9999, 9, acc.id)
+        b_id = pb.branch if pb.branch is not None else 9999
+        pos_rank = 2  # Default to PB
+        if pb.position == "지점장":
+            pos_rank = 0
+        elif pb.position == "팀장":
+            pos_rank = 1
+        elif pb.position == "PB":
+            pos_rank = 2
+        return (b_id, pos_rank, pb.name or acc.id)
+
+    accounts.sort(key=get_sort_key)
+
     client_counts = dict(db.query(InCharge.u_id, func.count(InCharge.c_id)).group_by(InCharge.u_id).all())
     pending_handovers = {
         h.from_u_id: h
@@ -786,13 +804,13 @@ async def get_handovers(search: Optional[str], status: Optional[str], db: Sessio
         from_branch = g['from_user'].branch_rel.name.replace('지점', '') if g['from_user'].branch_rel else "미정"
         to_branch = g['to_user'].branch_rel.name.replace('지점', '') if g['to_user'].branch_rel else "미정"
         
-        # 고객이 여러 명이면 X명 재배정으로 스마트하게 출력
-        cust_msg = f"고객 {g['customer_count']}명 재배정" if g['customer_count'] > 1 else "고객 재배정"
+        # 고객 수와 상관없이 항상 재배정 인원수를 명시적으로 출력
+        cust_msg = f"고객 {g['customer_count']}명 재배정"
         
         handovers.append(HandoverRecord(
             id=str(g['h_id']),
             name=from_name,
-            title=f"{from_name} {from_branch} → {to_branch}지점",
+            title=f"{from_name} {to_branch} → {from_branch}지점",
             desc=f"{cust_msg} → {to_name} {g['h_date'].strftime('%Y.%m.%d')}",
         ))
 
@@ -819,26 +837,33 @@ async def get_employee_customers(u_id: str, db: Session) -> CustomerListResponse
 
 async def transfer_customers(u_id: str, request: TransferRequest, db: Session, admin_id: str) -> TransferResponse:
     from_user = db.query(PbUser).filter(PbUser.u_id == u_id).first()
-    to_user = db.query(PbUser).filter(PbUser.u_id == request.receiver_u_id).first()
+    if not from_user:
+        return TransferResponse(message="인계자 정보가 유효하지 않습니다.", success=False)
 
-    if not from_user or not to_user:
-        return TransferResponse(message="인계자 또는 인수자 정보가 유효하지 않습니다.", success=False)
+    if request.customer_ids:
+        to_user = db.query(PbUser).filter(PbUser.u_id == request.receiver_u_id).first()
+        if not to_user:
+            return TransferResponse(message="인수자 정보가 유효하지 않습니다.", success=False)
+
+        try:
+            for cid in request.customer_ids:
+                db.query(InCharge).filter(InCharge.u_id == u_id, InCharge.c_id == cid).delete()
+                db.add(InCharge(u_id=request.receiver_u_id, c_id=cid))
+                db.add(Handover(a_id=admin_id, c_id=cid, from_u_id=u_id, to_u_id=request.receiver_u_id, status="완료"))
+        except Exception as e:
+            db.rollback()
+            logger.error(f"고객 이관 중 오류 발생: {e!r}")
+            return TransferResponse(message="처리 중 오류가 발생했습니다.", success=False)
 
     try:
-        for cid in request.customer_ids:
-            db.query(InCharge).filter(InCharge.u_id == u_id, InCharge.c_id == cid).delete()
-            db.add(InCharge(u_id=request.receiver_u_id, c_id=cid))
-            db.add(Handover(a_id=admin_id, c_id=cid, from_u_id=u_id, to_u_id=request.receiver_u_id, status="완료"))
-
-        if db.query(InCharge).filter(InCharge.u_id == u_id).count() == 0:
-            from_user.branch = request.target_branch
-            from_user.status = "재직"
+        from_user.branch = request.target_branch
+        from_user.status = "재직"
 
         db.commit()
         return TransferResponse(message="인수인계 및 지점 발령 처리가 성공적으로 완료되었습니다.", success=True)
     except Exception as e:
         db.rollback()
-        logger.error(f"고객 이관 중 오류 발생: {e!r}")
+        logger.error(f"지점 발령 처리 중 오류 발생: {e!r}")
         return TransferResponse(message="처리 중 오류가 발생했습니다.", success=False)
 
 
