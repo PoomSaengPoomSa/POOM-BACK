@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     CheckConstraint,
     func,
+    FetchedValue,
 )
 from sqlalchemy.orm import relationship
 
@@ -28,12 +29,12 @@ class Customer(Base):
     email = Column(String(50), nullable=False)
     address = Column(String(255), nullable=False)
     tendency = Column(String(30), nullable=False)
-    total_assets = Column(BigInteger, nullable=False)
+    total_assets = Column(BigInteger, FetchedValue(), server_default="0", nullable=False)
     deposit = Column(BigInteger, nullable=False)
     investment = Column(BigInteger, nullable=False)
     pension = Column(BigInteger, nullable=False)
     loan = Column(BigInteger, nullable=False)
-    net_worth = Column(BigInteger, nullable=False)
+    net_worth = Column(BigInteger, FetchedValue(), server_default="0", nullable=False)
     marital_status = Column(Boolean, nullable=False)
     start_date = Column(Date, default=func.current_date())
     grade = Column(String(30), nullable=False)
