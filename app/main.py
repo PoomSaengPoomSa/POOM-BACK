@@ -288,11 +288,23 @@ async def health_check():
     return {"status": "ok"}
 
 
+@app.get("/api/v1/ai-todo/debug/paths", tags=["Debug"])
+async def proxy_debug_paths():
+    import httpx
+    settings = get_settings()
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            resp = await client.get(f"{settings.POOM_AI_URL}/api/v1/ai-todo/debug/paths")
+            return resp.json()
+        except Exception as e:
+            return {"error": str(e)}
+
+
 @app.post("/api/v1/customer-main/run")
 async def run_customer_main_gateway(req: dict):
     from fastapi import HTTPException
     settings = get_settings()
-    async with httpx.AsyncClient(timeout=300.0) as client:
+    async with httpx.AsyncClient(timeout=1800.0) as client:
         try:
             resp = await client.post(f"{settings.POOM_AI_URL}/api/v1/customer-main/run", json=req)
             resp.raise_for_status()
