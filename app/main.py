@@ -304,7 +304,7 @@ async def proxy_debug_paths():
 async def run_customer_main_gateway(req: dict):
     from fastapi import HTTPException
     settings = get_settings()
-    async with httpx.AsyncClient(timeout=300.0) as client:
+    async with httpx.AsyncClient(timeout=1800.0) as client:
         try:
             resp = await client.post(f"{settings.POOM_AI_URL}/api/v1/customer-main/run", json=req)
             resp.raise_for_status()
