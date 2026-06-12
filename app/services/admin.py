@@ -374,8 +374,8 @@ async def get_system_logs(
 async def get_employee_dashboard(
     period: Optional[str], db: Session
 ) -> EmployeeDashboardResponse:
-    # 1. 전체 직원 수는 account 테이블에서 role이 'user'인 것 카운트
-    total_pb = db.query(Account).filter(Account.role == "user").count()
+    # 1. 전체 직원 수는 account 테이블에서 role이 'superadmin'이 아닌 것 카운트
+    total_pb = db.query(Account).filter(Account.role != "superadmin").count()
 
     # 2. 현재 접속 직원은 로컬 온라인 트래커(10분 내 활동 기록)를 사용하여 확인
     from app.utils.online_tracker import get_active_users
@@ -460,34 +460,52 @@ async def get_branch_stats(period: Optional[str], db: Session) -> BranchStatsRes
     # 소속 지점이 없는 직원 예외 처리
     branch_totals["미지정 지점"] = db.query(PbUser).filter(PbUser.branch == None).count()
 
-    # 2. ES에서 최근 24시간 동안 지점별 '고유' 접속자 수 집계
-    es_branch_actives = {}
+    # DB의 모든 직원 ID와 현재 지점 이름 매핑
+    user_branch_map = {}
     try:
-        async with httpx.AsyncClient(timeout=3.0, headers={"bypass-tunnel-reminder": "true"}, http2=False) as client:
-            resp = await client.post(
-                f"{ES_HOST}/employee_logs/_search",
-                json={
-                    "size": 0,
-                    "query": {
-                        "range": {"timestamp": {"gte": "now-24h"}}
-                    },
-                    "aggs": {
-                        "by_branch": {
-                            "terms": {"field": "branch", "size": 100},
-                            "aggs": {
-                                # user_id 기준으로 중복을 제거한 접속자 수 카운트
-                                "unique_users": {"cardinality": {"field": "user_id"}}
+        users_query = (
+            db.query(PbUser.u_id, Branch.name)
+            .outerjoin(Branch, PbUser.branch == Branch.b_id)
+            .all()
+        )
+        for u_id, branch_name in users_query:
+            user_branch_map[u_id] = branch_name or "미지정 지점"
+    except Exception as e:
+        logger.warning(f"DB 직원 매핑 조회 실패: {e!r}")
+
+    # 2. ES에서 최근 24시간 동안 활성화된 모든 user_id 집계
+    es_branch_actives = {}
+    if user_branch_map:
+        try:
+            async with httpx.AsyncClient(timeout=3.0, headers={"bypass-tunnel-reminder": "true"}, http2=False) as client:
+                resp = await client.post(
+                    f"{ES_HOST}/employee_logs/_search",
+                    json={
+                        "size": 0,
+                        "query": {
+                            "bool": {
+                                "must": [
+                                    {"range": {"timestamp": {"gte": "now-24h"}}},
+                                    {"terms": {"user_id": list(user_branch_map.keys())}}
+                                ]
+                            }
+                        },
+                        "aggs": {
+                            "active_users": {
+                                "terms": {"field": "user_id", "size": 10000}
                             }
                         }
                     }
-                }
-            )
-            if resp.status_code == 200:
-                buckets = resp.json().get("aggregations", {}).get("by_branch", {}).get("buckets", [])
-                for b in buckets:
-                    es_branch_actives[b["key"]] = b["unique_users"]["value"]
-    except Exception as e:
-        logger.warning(f"ES 지점별 접속률 조회 실패: {e!r}")
+                )
+                if resp.status_code == 200:
+                    buckets = resp.json().get("aggregations", {}).get("active_users", {}).get("buckets", [])
+                    for b in buckets:
+                        u_id = b["key"]
+                        current_branch = user_branch_map.get(u_id)
+                        if current_branch:
+                            es_branch_actives[current_branch] = es_branch_actives.get(current_branch, 0) + 1
+        except Exception as e:
+            logger.warning(f"ES 지점별 접속률 조회 실패: {e!r}")
 
     # 3. DB 전체 인원과 ES 접속자 수를 비교하여 비율(%) 계산
     stats = []
@@ -496,7 +514,7 @@ async def get_branch_stats(period: Optional[str], db: Session) -> BranchStatsRes
             continue
             
         active_emp = es_branch_actives.get(branch_name, 0)
-        rate = int((active_emp / total_emp) * 100)
+        rate = min(int((active_emp / total_emp) * 100), 100)
         
         # 화면에 예쁘게 보이도록 '지점', '금융센터' 글자 제거
         clean_name = branch_name.replace("지점", "").replace("금융센터", "")
@@ -509,46 +527,58 @@ async def get_branch_stats(period: Optional[str], db: Session) -> BranchStatsRes
 
 
 async def get_weekly_trend(db: Session) -> WeeklyTrendResponse:
-    # 1. 비율 계산을 위해 전체 PB 직원 수 조회
-    total_employees = db.query(Account).filter(Account.role == "user").count()
+    # 1. 비율 계산을 위해 전체 PB 직원 ID 리스트 조회
+    pb_user_ids = []
+    try:
+        pb_user_ids = [u_id for (u_id,) in db.query(PbUser.u_id).all()]
+    except Exception as e:
+        logger.warning(f"DB PB 직원 목록 조회 실패: {e!r}")
+        
+    total_employees = len(pb_user_ids)
     if total_employees == 0:
         total_employees = 1  # 0으로 나누는 에러 방지
 
     # 2. ES에서 최근 7일간 일별 고유 접속자 수 집계
     trends = []
-    try:
-        async with httpx.AsyncClient(timeout=3.0, headers={"bypass-tunnel-reminder": "true"}, http2=False) as client:
-            resp = await client.post(
-                f"{ES_HOST}/employee_logs/_search",
-                json={
-                    "size": 0,
-                    "query": {
-                        "range": {"timestamp": {"gte": "now-6d/d", "lte": "now/d"}}
-                    },
-                    "aggs": {
-                        "daily": {
-                            "date_histogram": {
-                                "field": "timestamp",
-                                "calendar_interval": "day",
-                                "time_zone": "+09:00", # KST 기준 일자 분리
-                                "format": "MM.dd"
-                            },
-                            "aggs": {
-                                "unique_users": {"cardinality": {"field": "user_id"}}
+    if pb_user_ids:
+        try:
+            async with httpx.AsyncClient(timeout=3.0, headers={"bypass-tunnel-reminder": "true"}, http2=False) as client:
+                resp = await client.post(
+                    f"{ES_HOST}/employee_logs/_search",
+                    json={
+                        "size": 0,
+                        "query": {
+                            "bool": {
+                                "must": [
+                                    {"range": {"timestamp": {"gte": "now-6d/d", "lte": "now/d"}}},
+                                    {"terms": {"user_id": pb_user_ids}}
+                                ]
+                            }
+                        },
+                        "aggs": {
+                            "daily": {
+                                "date_histogram": {
+                                    "field": "timestamp",
+                                    "calendar_interval": "day",
+                                    "time_zone": "+09:00", # KST 기준 일자 분리
+                                    "format": "MM.dd"
+                                },
+                                "aggs": {
+                                    "unique_users": {"cardinality": {"field": "user_id"}}
+                                }
                             }
                         }
                     }
-                }
-            )
-            if resp.status_code == 200:
-                buckets = resp.json().get("aggregations", {}).get("daily", {}).get("buckets", [])
-                for b in buckets:
-                    date_str = b["key_as_string"]  # 예: "05.29"
-                    active_users = b["unique_users"]["value"]
-                    rate = int((active_users / total_employees) * 100)
-                    trends.append(WeeklyTrend(name=date_str, value=rate))
-    except Exception as e:
-        logger.warning(f"ES 주간 접속률 조회 실패: {e!r}")
+                )
+                if resp.status_code == 200:
+                    buckets = resp.json().get("aggregations", {}).get("daily", {}).get("buckets", [])
+                    for b in buckets:
+                        date_str = b["key_as_string"]  # 예: "05.29"
+                        active_users = b["unique_users"]["value"]
+                        rate = min(int((active_users / total_employees) * 100), 100)
+                        trends.append(WeeklyTrend(name=date_str, value=rate))
+        except Exception as e:
+            logger.warning(f"ES 주간 접속률 조회 실패: {e!r}")
 
     # 데이터가 아직 안 쌓인 경우 (초기 세팅 시), 빈 날짜들을 0%로 채워줌
     if not trends:
@@ -615,11 +645,11 @@ async def get_employee_usage(period: Optional[str], db: Session) -> EmployeeUsag
         logger.warning(f"ES query failed: {e!r}")
         es_status = "오류"
 
-    # 2. 직원 현황은 DB의 account 테이블 중 role이 'user'인 애들을 PbUser와 조인하여 이름(name) 순으로 정렬
+    # 2. 직원 현황은 DB의 account 테이블 중 role이 'superadmin'이 아닌 애들을 PbUser와 조인하여 이름(name) 순으로 정렬
     accounts = (
         db.query(Account)
         .options(joinedload(Account.pb_user).joinedload(PbUser.branch_rel))
-        .filter(Account.role == "user")
+        .filter(Account.role != "superadmin")
         .join(PbUser, Account.id == PbUser.u_id)
         .order_by(PbUser.name.asc())
         .all()
@@ -672,7 +702,7 @@ async def get_system_usage(period: Optional[str], db: Session) -> UsageDashboard
 async def get_permissions(search: Optional[str], branch: Optional[str], db: Session) -> PermissionListResponse:
     query = db.query(Account).options(
         joinedload(Account.pb_user).joinedload(PbUser.branch_rel)
-    ).filter(Account.role == "user")
+    ).filter(Account.role != "superadmin")
 
     if search:
         query = query.outerjoin(PbUser, Account.id == PbUser.u_id)
